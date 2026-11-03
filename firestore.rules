@@ -1,0 +1,45 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isFamilyOwner(familyId) {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/families/$(familyId)).data.ownerUid == request.auth.uid;
+    }
+
+    // Gia đình: chỉ chủ sở hữu mới tạo / đọc / ghi.
+    match /families/{familyId} {
+      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow read, update, delete: if isFamilyOwner(familyId);
+
+      match /children/{childId} {
+        allow read, write: if isFamilyOwner(familyId);
+      }
+      match /rules/{docId} {
+        allow read, write: if isFamilyOwner(familyId);
+        match /perApp/{packageName} {
+          allow read, write: if isFamilyOwner(familyId);
+        }
+      }
+      match /children/{childId}/usage/{date} {
+        allow read, write: if isFamilyOwner(familyId);
+      }
+    }
+
+    // Mã ghép nối: người đã đăng nhập (kể cả ẩn danh của máy con) mới đọc được.
+    // Tạo mã: chỉ chủ gia đình. Nhận mã: chỉ khi mã còn ở PENDING.
+    // Duyệt mã: chỉ chủ gia đình.
+    match /pairingCodes/{code} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() &&
+        isFamilyOwner(request.resource.data.familyId);
+      allow update: if isSignedIn() && (
+        isFamilyOwner(resource.data.familyId) ||
+        (resource.data.status == 'PENDING' &&
+         request.resource.data.status == 'WAITING_APPROVAL')
+      );
+    }
+  }
+}
