@@ -1,5 +1,8 @@
 package vn.phong.parental.ui
 
+import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,7 +19,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
+import vn.phong.parental.R
 import vn.phong.parental.data.Pairing
 import vn.phong.parental.data.PairingCode
 
@@ -34,6 +42,23 @@ fun ParentPairingScreen(
     var sampleCode by remember { mutableStateOf<PairingCode?>(null) }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val googleLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            runCatching {
+                val account = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+                    .getResult(ApiException::class.java)
+                account.idToken
+                    ?: throw IllegalStateException("Google không trả về ID token")
+            }.onSuccess { idToken ->
+                viewModel?.parentGoogleSignIn(idToken) {}
+            }.onFailure {
+                viewModel?.setError(it.message ?: "Đăng nhập Google thất bại")
+            }
+        }
+    }
     val firebaseCode by viewModel?.pairingCode?.collectAsState() ?: remember { mutableStateOf<String?>(null) }
     val error by viewModel?.error?.collectAsState() ?: remember { mutableStateOf<String?>(null) }
 
@@ -58,6 +83,17 @@ fun ParentPairingScreen(
             Spacer(Modifier.height(8.dp))
             Button(onClick = { viewModel.parentSignIn(email, password) {} }) {
                 Text("Đăng nhập")
+            }
+            Spacer(Modifier.height(8.dp))
+            Button(onClick = {
+                val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                    .requestIdToken(context.getString(R.string.default_web_client_id))
+                    .requestEmail()
+                    .build()
+                val client = GoogleSignIn.getClient(context, gso)
+                googleLauncher.launch(client.signInIntent)
+            }) {
+                Text("Đăng nhập bằng Google")
             }
             Spacer(Modifier.height(8.dp))
             Text("Bước 2: tạo mã ghép nối Firebase thật, hiệu lực 10 phút.")
