@@ -1,6 +1,7 @@
 package vn.phong.parental.data.firebase
 
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
 import kotlinx.coroutines.tasks.await
 
 /**
@@ -32,6 +33,14 @@ object ParentAuth {
         val result = auth.signInAnonymously().await()
         return result.user?.uid
             ?: throw IllegalStateException("Không đăng nhập ẩn danh được")
+    }
+
+    /** Bố mẹ đăng nhập bằng tài khoản Google, qua ID token của Google. */
+    suspend fun signInWithGoogle(idToken: String): String {
+        val credential = GoogleAuthProvider.getCredential(idToken, null)
+        val result = auth.signInWithCredential(credential).await()
+        return result.user?.uid
+            ?: throw IllegalStateException("Không đăng nhập được bằng Google")
     }
 
     fun signOut() = auth.signOut()
