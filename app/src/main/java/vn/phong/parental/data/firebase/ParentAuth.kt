@@ -14,6 +14,7 @@ object ParentAuth {
     private val auth: FirebaseAuth get() = FirebaseAuth.getInstance()
 
     val currentUid: String? get() = auth.currentUser?.uid
+    val currentEmail: String? get() = auth.currentUser?.email
     val isSignedIn: Boolean get() = auth.currentUser != null
 
     suspend fun signUp(email: String, password: String): String {
