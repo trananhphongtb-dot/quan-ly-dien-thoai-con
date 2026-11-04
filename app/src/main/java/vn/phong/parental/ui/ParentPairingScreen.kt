@@ -69,6 +69,7 @@ fun ParentPairingScreen(
     val scope = rememberCoroutineScope()
     val firebaseCode by viewModel?.pairingCode?.collectAsState() ?: remember { mutableStateOf<String?>(null) }
     val error by viewModel?.error?.collectAsState() ?: remember { mutableStateOf<String?>(null) }
+    val signedInEmail by viewModel?.signedInEmail?.collectAsState() ?: remember { mutableStateOf<String?>(null) }
 
     fun googleSignIn() {
         if (viewModel == null || googleLoading) return
@@ -190,6 +191,19 @@ fun ParentPairingScreen(
                             fontWeight = FontWeight.Bold,
                             color = DarkText
                         )
+                    }
+                    signedInEmail?.let {
+                        Spacer(Modifier.height(12.dp))
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text("Đã đăng nhập: $it", color = Green, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                Text("Anh sang bước 2 bấm Tạo mã ghép nối nhé.", color = Green, fontSize = 14.sp)
+                            }
+                        }
                     }
                     error?.let {
                         Spacer(Modifier.height(12.dp))
