@@ -71,6 +71,12 @@ dependencies {
     implementation("com.google.firebase:firebase-firestore")
     implementation("com.google.firebase:firebase-messaging")
     implementation("com.google.android.gms:play-services-auth:21.3.0")
+    // Đăng nhập Google kiểu mới (Credential Manager): lấy ID token mới mỗi
+    // lần bấm, tránh token cũ/rỗng của cách GoogleSignIn cũ gây lỗi
+    // "Given String is empty or null" khi đưa vào Firebase.
+    implementation("androidx.credentials:credentials:1.5.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.5.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.0")
