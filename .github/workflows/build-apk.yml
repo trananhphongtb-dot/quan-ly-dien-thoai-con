@@ -11,13 +11,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-
       - name: Accept Android SDK licenses and install API 36
         # setup-android@v3 failed on this runner with unaccepted SDK
         # licenses, so use the runner's preinstalled SDK directly.
@@ -26,7 +24,6 @@ jobs:
           echo "sdkmanager: $SDKMANAGER"
           yes | "$SDKMANAGER" --licenses
           "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
-
       - name: Restore google-services.json from secret
         # Repo secret GOOGLE_SERVICES_JSON must contain the base64 of
         # app/google-services.json. The file itself is NOT committed,
@@ -38,16 +35,19 @@ jobs:
             exit 1
           fi
           echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 --decode > app/google-services.json
-
+      - name: Restore signing keystore from secret
+        run: |
+          if [ -z "${{ secrets.SIGNING_KEYSTORE }}" ]; then echo "Missing repo secret SIGNING_KEYSTORE" >&2; exit 1; fi; echo "${{ secrets.SIGNING_KEYSTORE }}" | base64 --decode > app/parental-signing.jks
       - name: Install Gradle 8.13 (no wrapper committed yet)
         run: |
           wget -q https://services.gradle.org/distributions/gradle-8.13-bin.zip
           unzip -q gradle-8.13-bin.zip -d /tmp
           echo "/tmp/gradle-8.13/bin" >> "$GITHUB_PATH"
-
       - name: Build debug APK only (no AAB yet)
+        env:
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: gradle assembleDebug --console=plain
-
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
