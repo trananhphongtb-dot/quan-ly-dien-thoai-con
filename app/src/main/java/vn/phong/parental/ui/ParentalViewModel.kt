@@ -63,12 +63,25 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
 
     fun clearError() { _error.value = null }
 
+    fun setError(message: String) { _error.value = message }
+
     // ---- Bố mẹ ----
 
     fun parentSignIn(email: String, password: String, onDone: () -> Unit) {
         viewModelScope.launch {
             runCatching {
                 val uid = ParentAuth.signIn(email, password)
+                store.parentUid = uid
+                store.role = "PARENT"
+            }.onSuccess { onDone() }
+                .onFailure { _error.value = it.message }
+        }
+    }
+
+    fun parentGoogleSignIn(idToken: String, onDone: () -> Unit) {
+        viewModelScope.launch {
+            runCatching {
+                val uid = ParentAuth.signInWithGoogle(idToken)
                 store.parentUid = uid
                 store.role = "PARENT"
             }.onSuccess { onDone() }
