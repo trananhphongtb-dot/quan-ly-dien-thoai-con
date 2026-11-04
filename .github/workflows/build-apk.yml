@@ -35,18 +35,12 @@ jobs:
             exit 1
           fi
           echo "${{ secrets.GOOGLE_SERVICES_JSON }}" | base64 --decode > app/google-services.json
-      - name: Restore signing keystore from secret
-        run: |
-          if [ -z "${{ secrets.SIGNING_KEYSTORE }}" ]; then echo "Missing repo secret SIGNING_KEYSTORE" >&2; exit 1; fi; echo "${{ secrets.SIGNING_KEYSTORE }}" | base64 --decode > app/parental-signing.jks
       - name: Install Gradle 8.13 (no wrapper committed yet)
         run: |
           wget -q https://services.gradle.org/distributions/gradle-8.13-bin.zip
           unzip -q gradle-8.13-bin.zip -d /tmp
           echo "/tmp/gradle-8.13/bin" >> "$GITHUB_PATH"
       - name: Build debug APK only (no AAB yet)
-        env:
-          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
-          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: gradle assembleDebug --console=plain
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
