@@ -38,6 +38,11 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
 
+    // Email đang đăng nhập (nếu có) — màn ghép nối hiện rõ để bố mẹ biết
+    // mình đã đăng nhập thành công, thay vì màn hình im lặng như trước.
+    private val _signedInEmail = MutableStateFlow<String?>(ParentAuth.currentEmail)
+    val signedInEmail: StateFlow<String?> = _signedInEmail
+
     private val _pairingCode = MutableStateFlow<String?>(null)
     val pairingCode: StateFlow<String?> = _pairingCode
 
@@ -73,6 +78,7 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
                 val uid = ParentAuth.signIn(email, password)
                 store.parentUid = uid
                 store.role = "PARENT"
+                _signedInEmail.value = ParentAuth.currentEmail ?: email
             }.onSuccess { onDone() }
                 .onFailure { _error.value = it.message }
         }
@@ -84,6 +90,7 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
                 val uid = ParentAuth.signInWithGoogle(idToken)
                 store.parentUid = uid
                 store.role = "PARENT"
+                _signedInEmail.value = ParentAuth.currentEmail
             }.onSuccess { onDone() }
                 .onFailure { _error.value = it.message }
         }
@@ -95,6 +102,7 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
                 val uid = ParentAuth.signUp(email, password)
                 store.parentUid = uid
                 store.role = "PARENT"
+                _signedInEmail.value = ParentAuth.currentEmail ?: email
             }.onSuccess { onDone() }
                 .onFailure { _error.value = it.message }
         }
