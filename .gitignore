@@ -3,6 +3,7 @@ build/
 app/build/
 local.properties
 app/google-services.json
+app/parental-signing.jks
 build*.log
 *.iml
 .DS_Store
