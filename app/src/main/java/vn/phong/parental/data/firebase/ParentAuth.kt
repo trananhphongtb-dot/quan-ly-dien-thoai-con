@@ -35,8 +35,13 @@ object ParentAuth {
             ?: throw IllegalStateException("Không đăng nhập ẩn danh được")
     }
 
-    /** Bố mẹ đăng nhập bằng tài khoản Google, qua ID token của Google. */
+    /** Bố mẹ đăng nhập bằng tài khoản Google, qua ID token của Google.
+     * Token rỗng thì báo rõ bằng tiếng Việt, không để Firebase ném lỗi
+     * "Given String is empty or null" khó hiểu ra màn hình. */
     suspend fun signInWithGoogle(idToken: String): String {
+        require(idToken.isNotBlank()) {
+            "Google không trả về ID token hợp lệ, vui lòng bấm đăng nhập lại"
+        }
         val credential = GoogleAuthProvider.getCredential(idToken, null)
         val result = auth.signInWithCredential(credential).await()
         return result.user?.uid
