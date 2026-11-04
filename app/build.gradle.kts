@@ -9,6 +9,32 @@ android {
     namespace = "vn.phong.parental"
     compileSdk = 36
 
+    // Ký debug bằng key ổn định khi workflow khôi phục
+    // app/parental-signing.jks và cấp mật khẩu qua biến môi trường.
+    // Không có key thì Gradle dùng key debug mặc định như trước.
+    val parentalKeystore = file("parental-signing.jks")
+    val parentalStorePassword = System.getenv("SIGNING_STORE_PASSWORD")
+    val parentalKeyPassword = System.getenv("SIGNING_KEY_PASSWORD")
+    val useParentalSigning =
+        parentalKeystore.exists() && parentalStorePassword != null && parentalKeyPassword != null
+    signingConfigs {
+        create("parental") {
+            if (useParentalSigning) {
+                storeFile = parentalKeystore
+                storePassword = parentalStorePassword
+                keyAlias = "parental"
+                keyPassword = parentalKeyPassword
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            if (useParentalSigning) {
+                signingConfig = signingConfigs.getByName("parental")
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "vn.phong.parental"
         minSdk = 24
@@ -44,6 +70,7 @@ dependencies {
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-firestore")
     implementation("com.google.firebase:firebase-messaging")
+    implementation("com.google.android.gms:play-services-auth:21.3.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.0")
