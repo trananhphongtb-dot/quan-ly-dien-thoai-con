@@ -81,7 +81,9 @@ private fun GoogleButton(loading: Boolean, onClick: () -> Unit) {
 fun ParentPairingScreen(
     viewModel: ParentalViewModel,
     onPaired: () -> Unit,
-    onSignedOut: () -> Unit = {}
+    onSignedOut: () -> Unit = {},
+    /** Có khi đang thêm máy con mới: cho phép quay lại màn chính mà không ghép nối. */
+    onBack: (() -> Unit)? = null
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -211,6 +213,9 @@ fun ParentPairingScreen(
                         enabled = status == "WAITING_APPROVAL"
                     )
                 }
+            }
+            if (onBack != null) {
+                SecondaryButton(Lang.t("Quay lại", "Back"), onBack)
             }
             TextButton(
                 onClick = { viewModel.signOutParent(onSignedOut) },

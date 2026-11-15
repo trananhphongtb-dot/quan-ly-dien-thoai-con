@@ -82,7 +82,8 @@ class MainActivity : ComponentActivity() {
                     Screen.PARENT_PAIRING -> ParentPairingScreen(
                         viewModel = viewModel,
                         onPaired = { screen = Screen.PARENT_HOME },
-                        onSignedOut = { screen = Screen.ROLE }
+                        onSignedOut = { screen = Screen.ROLE },
+                        onBack = if (viewModel.childId != null) ({ screen = Screen.PARENT_HOME }) else null
                     )
                     Screen.CHILD_PAIRING -> ChildPairingScreen(viewModel = viewModel) {
                         screen = Screen.CHILD_WAITING
@@ -110,7 +111,8 @@ class MainActivity : ComponentActivity() {
                     Screen.PARENT_HOME -> ParentHomeScreen(
                         viewModel = viewModel,
                         onSignedOut = { screen = Screen.ROLE },
-                        onUnpaired = { screen = Screen.PARENT_PAIRING }
+                        onUnpaired = { screen = Screen.PARENT_PAIRING },
+                        onAddChild = { viewModel.prepareAddChild(); screen = Screen.PARENT_PAIRING }
                     )
                 }
             }

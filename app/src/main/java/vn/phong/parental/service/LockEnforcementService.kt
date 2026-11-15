@@ -86,8 +86,8 @@ class LockEnforcementService : Service() {
         }
         if (loopJob == null) {
             rulesRepo.errorSink = { store.lastError = it }
-            listeners += rulesRepo.listenGeneralLimit(familyId) { generalLimit = it; kick.trySend(Unit) }
-            listeners += rulesRepo.listenPerAppLimits(familyId) { perAppLimits = it; kick.trySend(Unit) }
+            listeners += rulesRepo.listenGeneralLimit(familyId, childId) { generalLimit = it; kick.trySend(Unit) }
+            listeners += rulesRepo.listenPerAppLimits(familyId, childId) { perAppLimits = it; kick.trySend(Unit) }
             listeners += rulesRepo.listenChild(familyId, childId) { doc ->
                 if (doc == null) {
                     // Bố mẹ đã hủy ghép nối máy này.

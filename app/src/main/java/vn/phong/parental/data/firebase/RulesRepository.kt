@@ -29,20 +29,22 @@ class RulesRepository(
         db.collection(FirebaseStore.FAMILIES).document(familyId)
             .collection(FirebaseStore.CHILDREN).document(childId)
 
-    private fun generalDoc(familyId: String) =
+    // Luật riêng cho từng máy con: doc "general_<childId>" trong families/{id}/rules,
+    // nằm đúng đường dẫn Firestore rules hiện có nên không cần đăng lại rules.
+    private fun generalDoc(familyId: String, childId: String) =
         db.collection(FirebaseStore.FAMILIES).document(familyId)
-            .collection(FirebaseStore.RULES).document(FirebaseStore.GENERAL_RULE_DOC)
+            .collection(FirebaseStore.RULES).document(FirebaseStore.GENERAL_RULE_DOC + "_" + childId)
 
-    private fun perAppCollection(familyId: String) =
+    private fun perAppCollection(familyId: String, childId: String) =
         db.collection(FirebaseStore.FAMILIES).document(familyId)
             .collection(FirebaseStore.RULES)
-            .document(FirebaseStore.GENERAL_RULE_DOC)
+            .document(FirebaseStore.GENERAL_RULE_DOC + "_" + childId)
             .collection(FirebaseStore.PER_APP)
 
     // ---- Bố mẹ ghi luật ----
 
-    suspend fun saveGeneralLimit(familyId: String, limit: GeneralLimit) {
-        generalDoc(familyId).set(
+    suspend fun saveGeneralLimit(familyId: String, childId: String, limit: GeneralLimit) {
+        generalDoc(familyId, childId).set(
             mapOf(
                 "dailyTotalMinutes" to limit.dailyTotalMinutes,
                 "bedtimeStart" to limit.bedtimeStart,
@@ -54,8 +56,8 @@ class RulesRepository(
         ).await()
     }
 
-    suspend fun savePerAppLimit(familyId: String, limit: PerAppLimit) {
-        perAppCollection(familyId).document(limit.packageName).set(
+    suspend fun savePerAppLimit(familyId: String, childId: String, limit: PerAppLimit) {
+        perAppCollection(familyId, childId).document(limit.packageName).set(
             mapOf(
                 "appName" to limit.appName,
                 "dailyMinutes" to limit.dailyMinutes,
@@ -221,8 +223,8 @@ class RulesRepository(
         }).await()
     }
 
-    suspend fun deletePerAppLimit(familyId: String, packageName: String) {
-        perAppCollection(familyId).document(packageName).delete().await()
+    suspend fun deletePerAppLimit(familyId: String, childId: String, packageName: String) {
+        perAppCollection(familyId, childId).document(packageName).delete().await()
     }
 
     suspend fun saveInstalledApps(familyId: String, childId: String, apps: List<InstalledApp>) {
@@ -302,11 +304,43 @@ class RulesRepository(
         }
     }
 
+    /** Đổi tên hiển thị của một máy con. */
+    suspend fun renameChild(familyId: String, childId: String, name: String) {
+        childDoc(familyId, childId).update(
+            mapOf("name" to name, "updatedAt" to Timestamp.now())
+        ).await()
+    }
+
+    /** Danh sách mọi máy con trong gia đình (bố mẹ dùng để chuyển qua lại giữa các con). */
+    fun listenChildren(
+        familyId: String,
+        onChange: (List<ChildDevice>) -> Unit
+    ): ListenerRegistration {
+        return db.collection(FirebaseStore.FAMILIES).document(familyId)
+            .collection(FirebaseStore.CHILDREN)
+            .addSnapshotListener { snap, err ->
+                if (err != null) {
+                    errorSink?.invoke("${err.code}: ${err.message}")
+                    return@addSnapshotListener
+                }
+                val list = snap?.documents?.map { d ->
+                    ChildDevice(
+                        id = d.id,
+                        name = d.getString("name") ?: "",
+                        isLocked = d.getBoolean("isLocked") ?: false,
+                        updatedAtMillis = d.getTimestamp("updatedAt")?.toDate()?.time ?: 0L
+                    )
+                }?.sortedBy { it.name.lowercase() } ?: emptyList()
+                onChange(list)
+            }
+    }
+
     fun listenGeneralLimit(
         familyId: String,
+        childId: String,
         onChange: (GeneralLimit) -> Unit
     ): ListenerRegistration {
-        return generalDoc(familyId).addSnapshotListener { snap, err ->
+        return generalDoc(familyId, childId).addSnapshotListener { snap, err ->
             if (err != null) {
                 errorSink?.invoke("${err.code}: ${err.message}")
                 return@addSnapshotListener
@@ -326,9 +360,10 @@ class RulesRepository(
 
     fun listenPerAppLimits(
         familyId: String,
+        childId: String,
         onChange: (List<PerAppLimit>) -> Unit
     ): ListenerRegistration {
-        return perAppCollection(familyId).addSnapshotListener { snap, err ->
+        return perAppCollection(familyId, childId).addSnapshotListener { snap, err ->
             if (err != null) {
                 errorSink?.invoke("${err.code}: ${err.message}")
                 return@addSnapshotListener

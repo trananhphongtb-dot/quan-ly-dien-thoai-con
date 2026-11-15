@@ -56,6 +56,10 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
     private val _child = MutableStateFlow<ChildDevice?>(null)
     val child: StateFlow<ChildDevice?> = _child
 
+    private val _children = MutableStateFlow<List<ChildDevice>>(emptyList())
+    /** Mọi máy con trong gia đình, để chuyển qua lại. */
+    val children: StateFlow<List<ChildDevice>> = _children
+
     private val _generalLimit = MutableStateFlow(GeneralLimit())
     val generalLimit: StateFlow<GeneralLimit> = _generalLimit
 
@@ -128,6 +132,15 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    /** Chuẩn bị thêm một máy con nữa: xóa mã cũ, giữ nguyên gia đình và các máy con đã có. */
+    fun prepareAddChild() {
+        pairingListener?.remove()
+        pairingListener = null
+        _pairingCode.value = null
+        _pairingStatus.value = "NOT_PAIRED"
+        _pairingChildName.value = ""
+    }
+
     /** Tạo family nếu chưa có, tạo mã ghép nối, rồi nghe trạng thái mã. */
     fun createPairingCode() {
         viewModelScope.launch {
@@ -176,12 +189,20 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             runCatching { pairingRepo.removeChild(fid, cid) }
                 .onSuccess {
-                    stopListening()
-                    store.childId = null
-                    _child.value = null
-                    _pairingCode.value = null
-                    _pairingStatus.value = "NOT_PAIRED"
-                    onDone()
+                    val next = _children.value.firstOrNull { it.id != cid }
+                    if (next != null) {
+                        // Còn máy con khác: chuyển sang con đó, ở lại màn chính.
+                        store.childId = next.id
+                        startListening(fid, next.id)
+                    } else {
+                        stopListening()
+                        store.childId = null
+                        _child.value = null
+                        _children.value = emptyList()
+                        _pairingCode.value = null
+                        _pairingStatus.value = "NOT_PAIRED"
+                        onDone()
+                    }
                 }
                 .onFailure { _error.value = it.message }
         }
@@ -193,6 +214,7 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
         store.clear()
         _signedInEmail.value = null
         _child.value = null
+        _children.value = emptyList()
         _pairingCode.value = null
         _pairingStatus.value = "NOT_PAIRED"
         onDone()
@@ -252,33 +274,64 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
 
     fun startListening(familyId: String, childId: String) {
         stopListening()
+        // Đổi sang con khác thì xóa số liệu của con trước để khỏi hiện nhầm.
+        _child.value = null
+        _generalLimit.value = GeneralLimit()
+        _perAppLimits.value = emptyList()
+        _usage.value = emptyList()
+        _installedApps.value = emptyList()
+        rulesRepo.errorSink = { _error.value = it }
+        listeners += rulesRepo.listenChildren(familyId) { _children.value = it }
         listeners += rulesRepo.listenChild(familyId, childId) { _child.value = it }
-        listeners += rulesRepo.listenGeneralLimit(familyId) { _generalLimit.value = it }
-        listeners += rulesRepo.listenPerAppLimits(familyId) { _perAppLimits.value = it }
+        listeners += rulesRepo.listenGeneralLimit(familyId, childId) { _generalLimit.value = it }
+        listeners += rulesRepo.listenPerAppLimits(familyId, childId) { _perAppLimits.value = it }
         listeners += rulesRepo.listenUsage(familyId, childId, today()) { _usage.value = it }
         listeners += rulesRepo.listenInstalledApps(familyId, childId) { _installedApps.value = it }
     }
 
+    /** Chọn máy con khác để xem và chỉnh luật. */
+    fun selectChild(id: String) {
+        val fid = store.familyId ?: return
+        if (id == store.childId) return
+        store.childId = id
+        startListening(fid, id)
+    }
+
+    /** Đổi tên máy con đang chọn. */
+    fun renameChild(name: String) {
+        val fid = store.familyId ?: return
+        val cid = store.childId ?: return
+        val clean = name.trim().take(30)
+        if (clean.isEmpty()) return
+        viewModelScope.launch {
+            runCatching { rulesRepo.renameChild(fid, cid, clean) }
+                .onFailure { _error.value = it.message }
+        }
+    }
+
     fun saveGeneralLimit(limit: GeneralLimit) {
         val fid = store.familyId ?: return
+        val cid = store.childId ?: return
         viewModelScope.launch {
-            runCatching { rulesRepo.saveGeneralLimit(fid, limit) }
+            runCatching { rulesRepo.saveGeneralLimit(fid, cid, limit) }
                 .onFailure { _error.value = it.message }
         }
     }
 
     fun savePerAppLimit(limit: PerAppLimit) {
         val fid = store.familyId ?: return
+        val cid = store.childId ?: return
         viewModelScope.launch {
-            runCatching { rulesRepo.savePerAppLimit(fid, limit) }
+            runCatching { rulesRepo.savePerAppLimit(fid, cid, limit) }
                 .onFailure { _error.value = it.message }
         }
     }
 
     fun deletePerAppLimit(packageName: String) {
         val fid = store.familyId ?: return
+        val cid = store.childId ?: return
         viewModelScope.launch {
-            runCatching { rulesRepo.deletePerAppLimit(fid, packageName) }
+            runCatching { rulesRepo.deletePerAppLimit(fid, cid, packageName) }
                 .onFailure { _error.value = it.message }
         }
     }

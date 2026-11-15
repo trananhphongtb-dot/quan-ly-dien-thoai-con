@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,6 +15,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Settings
@@ -60,8 +62,11 @@ private val TimeRegex = Regex("^([01]\\d|2[0-3]):[0-5]\\d$")
 fun ParentHomeScreen(
     viewModel: ParentalViewModel,
     onSignedOut: () -> Unit = {},
-    onUnpaired: () -> Unit = {}
+    onUnpaired: () -> Unit = {},
+    onAddChild: () -> Unit = {}
 ) {
+    val children by viewModel.children.collectAsState()
+    var renaming by remember { mutableStateOf(false) }
     val child by viewModel.child.collectAsState()
     val general by viewModel.generalLimit.collectAsState()
     val perApp by viewModel.perAppLimits.collectAsState()
@@ -95,6 +100,15 @@ fun ParentHomeScreen(
             },
             leading = { AppAvatar(c?.name?.ifBlank { null } ?: "C", 40) },
             trailing = {
+                if (c != null) {
+                    Icon(
+                        Icons.Filled.Edit,
+                        contentDescription = Lang.t("Đổi tên", "Rename"),
+                        tint = Color.White,
+                        modifier = Modifier.size(34.dp).clip(CircleShape)
+                            .clickable { renaming = true }.padding(6.dp)
+                    )
+                }
                 if (c?.isLocked == true) StatusChip(Lang.t("Đang khóa", "Locked"), Ui.Red)
                 else if (c != null && c.unlockUntilMillis > clock) StatusChip(Lang.t("Mở tạm", "Pass"), Ui.Green)
             }
@@ -107,6 +121,7 @@ fun ParentHomeScreen(
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            ChildSwitcher(children, c?.id, onSelect = { viewModel.selectChild(it) }, onAdd = onAddChild)
             error?.let {
                 Notice(Lang.t("Lỗi: $it", "Error: $it"), NoticeKind.ERROR) {
                     TextButton(onClick = { viewModel.clearError() }) { Text(Lang.t("Đóng", "Close")) }
@@ -122,6 +137,85 @@ fun ParentHomeScreen(
         }
         AppTabBar(tabs, tab) { tab = it }
     }
+    if (renaming) {
+        RenameDialog(
+            current = child?.name ?: "",
+            onDismiss = { renaming = false },
+            onSave = { viewModel.renameChild(it); renaming = false }
+        )
+    }
+}
+
+/** Hàng chọn máy con: mỗi con một ô, cuối hàng là nút thêm máy con mới. */
+@Composable
+private fun ChildSwitcher(
+    children: List<ChildDevice>,
+    selectedId: String?,
+    onSelect: (String) -> Unit,
+    onAdd: () -> Unit
+) {
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        children.forEach { ch ->
+            val on = ch.id == selectedId
+            val shape = RoundedCornerShape(50)
+            Row(
+                Modifier
+                    .shadow(if (on) 6.dp else 2.dp, shape, spotColor = if (on) Ui.Primary else Ui.Shadow)
+                    .clip(shape)
+                    .background(if (on) Brush.verticalGradient(listOf(Ui.PrimaryLight, Ui.Primary)) else Brush.verticalGradient(listOf(Color.White, Color(0xFFF1F5FB))))
+                    .clickable { onSelect(ch.id) }
+                    .padding(start = 6.dp, end = 14.dp, top = 5.dp, bottom = 5.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                AppAvatar(ch.name.ifBlank { "C" }, 26)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    ch.name.ifBlank { Lang.t("Máy con", "Child") },
+                    color = if (on) Color.White else Ui.Text,
+                    fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1
+                )
+                if (ch.isLocked) {
+                    Spacer(Modifier.width(6.dp))
+                    Icon(Icons.Filled.Lock, null, tint = if (on) Color.White else Ui.Red, modifier = Modifier.size(13.dp))
+                }
+            }
+        }
+        val shape = RoundedCornerShape(50)
+        Text(
+            Lang.t("+ Thêm máy con", "+ Add child"),
+            color = Ui.Primary, fontWeight = FontWeight.Bold, fontSize = 13.sp,
+            modifier = Modifier
+                .clip(shape)
+                .background(Ui.PrimarySoft)
+                .border(1.dp, Ui.Primary.copy(alpha = 0.3f), shape)
+                .clickable(onClick = onAdd)
+                .padding(horizontal = 14.dp, vertical = 9.dp)
+        )
+    }
+}
+
+@Composable
+private fun RenameDialog(current: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
+    var name by remember { mutableStateOf(current) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(Lang.t("Đổi tên máy con", "Rename child's phone")) },
+        text = {
+            OutlinedTextField(
+                value = name, onValueChange = { name = it.take(30) },
+                label = { Text(Lang.t("Tên hiển thị", "Display name")) }, singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(name) }, enabled = name.isNotBlank()) { Text(Lang.t("Lưu", "Save")) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(Lang.t("Hủy", "Cancel")) } }
+    )
 }
 
 // ---- Tab 1: Theo dõi ----
@@ -564,7 +658,7 @@ private fun LockTab(
         color = Ui.Soft, fontSize = 12.sp
     )
     SectionCard(Lang.t("Tài khoản", "Account")) {
-        SecondaryButton(Lang.t("Hủy ghép nối máy con", "Unpair child's phone"), { confirmUnpair = true }, color = Ui.Red)
+        SecondaryButton(Lang.t("Hủy ghép nối máy con này", "Unpair this child's phone"), { confirmUnpair = true }, color = Ui.Red)
         SecondaryButton(Lang.t("Đăng xuất", "Sign out"), { viewModel.signOutParent(onSignedOut) })
     }
     if (confirmUnpair) {
