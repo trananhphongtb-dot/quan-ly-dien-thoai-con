@@ -18,7 +18,7 @@ import com.google.firebase.Timestamp
  * families/{familyId}/children/{childId}/usage/{yyyy-MM-dd}
  *   stats: List<Map<String, Any>> (appName, minutes, opens)
  * pairingCodes/{6-digit-code}
- *   familyId, status, childName, childDeviceId, expiresAt, createdAt
+ *   familyId, status, childName, childDeviceId, childUid, childId, expiresAt, createdAt
  *
  * Quy tắc bảo mật xem file firestore.rules ở thư mục gốc project.
  */
@@ -29,6 +29,8 @@ object FirebaseStore {
     const val GENERAL_RULE_DOC = "general"
     const val PER_APP = "perApp"
     const val USAGE = "usage"
+    const val META = "meta"
+    const val APPS_DOC = "apps"
     const val PAIRING_CODES = "pairingCodes"
 
     const val STATUS_PENDING = "PENDING"
@@ -45,6 +47,8 @@ data class PairingCodeDoc(
     val status: String = FirebaseStore.STATUS_PENDING,
     val childName: String = "",
     val childDeviceId: String = "",
+    val childUid: String = "",
+    val childId: String = "",
     val expiresAt: Timestamp? = null
 ) {
     val isExpired: Boolean

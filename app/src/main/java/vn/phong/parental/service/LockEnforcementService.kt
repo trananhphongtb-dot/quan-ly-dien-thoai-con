@@ -5,9 +5,11 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -17,102 +19,223 @@ import kotlinx.coroutines.launch
 import vn.phong.parental.data.firebase.LocalStore
 import vn.phong.parental.data.firebase.RulesRepository
 import vn.phong.parental.data.lock.EnforcementEngine
+import vn.phong.parental.data.lock.Exempt
+import vn.phong.parental.data.lock.PermissionState
 import vn.phong.parental.data.lock.UsageTracker
+import vn.phong.parental.model.AppUsageStat
+import vn.phong.parental.model.ChildDevice
 import vn.phong.parental.model.GeneralLimit
+import vn.phong.parental.model.InstalledApp
 import vn.phong.parental.model.PerAppLimit
 import vn.phong.parental.ui.LockScreenActivity
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
- * Service chạy nền trên máy con, kiểm tra mỗi 30 giây:
- * - Đọc luật mới nhất từ Firestore (đã cache lần cuối nếu mất mạng).
- * - Đọc phút đã dùng thật từ UsageStats, app đang mở thật.
- * - Nếu máy bị khóa từ xa, hết tổng giờ, đang giờ ngủ, đang giờ học
- *   mà mở app không phải app học, hoặc app đó hết giờ riêng → bật
- *   LockScreenActivity phủ toàn màn hình.
- * - Gửi app đang dùng + tổng phút về Firestore để Tab 1 bên bố mẹ thấy.
+ * Service chạy nền trên máy con, kiểm tra mỗi 10 giây:
+ * - Luật mới nhất từ Firestore (Firestore tự cache nên mất mạng vẫn dùng bản cuối).
+ * - Phút đã dùng thật tính từ sự kiện UsageStats.
+ * - Nếu máy bị khóa từ xa, hết tổng giờ (đã cộng giờ bố mẹ cho thêm), đang
+ *   giờ ngủ, giờ học mà mở app không phải app học, hoặc app hết giờ riêng
+ *   → ghi phạm vi khóa vào LocalStore và bật LockScreenActivity.
+ * - Báo lên Firestore: app đang dùng, tổng phút, giờ mở/đóng máy, thống kê
+ *   theo app, danh sách app cài, quyền đang thiếu.
  *
- * Service này không tự khóa cứng nút Home. Nút Home trên Android thường
- * vẫn thoát được, nhưng ChildAccessibilityService sẽ phát hiện cửa sổ
- * mới và bật lại màn khóa ngay. Muốn khóa cứng 100% phải dùng Device Owner
- * (máy công ty), không phải app cài thường trong nhà.
+ * Nút Home vẫn thoát được, nhưng ChildAccessibilityService đọc cùng phạm vi
+ * khóa và bật lại màn khóa ngay. Khóa cứng 100% cần Device Owner.
  */
 class LockEnforcementService : Service() {
 
     private val scope = CoroutineScope(Dispatchers.IO + Job())
     private val rulesRepo = RulesRepository()
     private val listeners = mutableListOf<ListenerRegistration>()
+    private var loopJob: Job? = null
 
-    private var generalLimit = GeneralLimit()
-    private var perAppLimits: List<PerAppLimit> = emptyList()
-    private var remoteLocked = false
-    private var remoteReason = ""
+    @Volatile private var generalLimit = GeneralLimit()
+    @Volatile private var perAppLimits: List<PerAppLimit> = emptyList()
+    @Volatile private var child: ChildDevice? = null
+
     private var lastReportedApp: String? = null
     private var lastReportedMinutes = -1
+    private var lastReportAt = 0L
+    private var lastUsageUploadAt = 0L
+    private var lastAppsUploadAt = 0L
+    private var lastPermMissing: String? = null
+    private var lastTimes = ""
 
     override fun onCreate() {
         super.onCreate()
         startForegroundNotification()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val store = LocalStore(this)
         val familyId = store.familyId
         val childId = store.childId
-        if (familyId != null && childId != null) {
+        if (familyId == null || childId == null || store.role != "CHILD") {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        if (loopJob == null) {
             listeners += rulesRepo.listenGeneralLimit(familyId) { generalLimit = it }
             listeners += rulesRepo.listenPerAppLimits(familyId) { perAppLimits = it }
-            listeners += rulesRepo.listenChild(familyId, childId) {
-                remoteLocked = it?.isLocked ?: false
-                remoteReason = it?.lockReason ?: ""
+            listeners += rulesRepo.listenChild(familyId, childId) { doc ->
+                if (doc == null) {
+                    // Bố mẹ đã hủy ghép nối máy này.
+                    store.lockScope = ""
+                    store.clear()
+                    stopSelf()
+                } else {
+                    child = doc
+                }
+            }
+            runCatching {
+                FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
+                    scope.launch { runCatching { rulesRepo.saveFcmToken(familyId, childId, token) } }
+                }
+            }
+            loopJob = scope.launch {
+                while (isActive) {
+                    runCatching { enforceOnce(store, familyId, childId) }
+                    delay(10_000)
+                }
             }
         }
-        scope.launch {
-            while (isActive) {
-                runCatching { enforceOnce() }
-                delay(30_000)
-            }
-        }
+        return START_STICKY
     }
 
-    private suspend fun enforceOnce() {
-        if (!UsageTracker.hasUsagePermission(this)) return
-        val store = LocalStore(this)
-        val familyId = store.familyId ?: return
-        val childId = store.childId ?: return
+    private fun today(): String =
+        SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
 
-        val used = UsageTracker.todayUsageMinutes(this)
-        val total = UsageTracker.totalMinutesToday(this)
-        val currentApp = UsageTracker.currentForegroundApp(this)
+    private fun hhmm(millis: Long): String =
+        if (millis <= 0L) "--:--" else SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(millis))
 
-        // Gửi thống kê về cho bố mẹ, chỉ gửi khi có thay đổi để đỡ tốn pin.
-        if (currentApp != null && (currentApp != lastReportedApp || total != lastReportedMinutes)) {
-            val now = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-                .format(java.util.Date())
-            runCatching {
-                rulesRepo.updateCurrentApp(familyId, childId, currentApp, now, total)
-            }
-            lastReportedApp = currentApp
-            lastReportedMinutes = total
+    private fun labelOf(pkg: String): String = runCatching {
+        val pm = packageManager
+        pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+    }.getOrDefault(pkg)
+
+    private suspend fun enforceOnce(store: LocalStore, familyId: String, childId: String) {
+        // Quyền thiếu thì báo bố mẹ, nhưng vẫn khóa nếu còn đủ quyền để khóa.
+        val missing = PermissionState.missingText(this)
+        if (missing != lastPermMissing) {
+            runCatching { rulesRepo.reportPermissions(familyId, childId, missing) }
+            lastPermMissing = missing
         }
 
-        val reason = if (remoteLocked) {
-            remoteReason.ifBlank { "Bố mẹ đã khóa máy" }
-        } else if (currentApp != null) {
-            EnforcementEngine.blockReason(
-                packageName = currentApp,
-                limits = perAppLimits,
-                usedMinutesToday = used,
-                generalLimit = generalLimit,
-                totalMinutesToday = total,
-                ownPackageName = packageName
-            )
+        val exempt = Exempt.packages(this)
+        // Thiếu quyền Usage thì vẫn áp lệnh khóa từ xa / giờ ngủ, chỉ không có số liệu.
+        val summary = if (PermissionState.usage(this)) {
+            UsageTracker.summarizeToday(this)
         } else {
-            null
+            UsageTracker.Summary(emptyMap(), emptyMap(), null, 0L, 0L, 0L)
+        }
+        val total = summary.totalMinutes(exempt)
+        val fg = summary.foregroundPackage
+        val doc = child
+        val bonus = if (doc != null && doc.bonusDate == today()) doc.bonusMinutes else 0
+
+        val block = EnforcementEngine.evaluate(
+            packageName = fg,
+            limits = perAppLimits,
+            usedMinutesToday = summary.minutesByPackage,
+            generalLimit = generalLimit,
+            totalMinutesToday = total,
+            exempt = exempt,
+            remoteLocked = doc?.isLocked ?: false,
+            remoteReason = doc?.lockReason ?: "",
+            bonusMinutes = bonus
+        )
+
+        // Phạm vi khóa dùng chung cho màn khóa và dịch vụ trợ năng.
+        // Đang hiện màn khóa của chính app (fg = app mình) thì giữ phạm vi
+        // khóa theo app, tránh khóa xong lại tự mở khóa rồi khóa lại liên tục.
+        val prevScope = store.lockScope
+        store.lockScope = when {
+            block == null ->
+                if (fg == packageName && prevScope.startsWith("APP:")) prevScope else ""
+            block.wholeDevice -> "ALL"
+            else -> "APP:${block.packageName}"
+        }
+        if (block != null) store.lockReason = block.reason
+
+        if (block != null) {
+            // Khi khóa cả máy, chỉ app chính, quay số, hệ thống được qua;
+            // launcher bị chặn. Khi khóa 1 app, block.packageName đã là app đó.
+            val passes = if (block.wholeDevice) {
+                fg != null && fg in (exempt - Exempt.launchers(this))
+            } else false
+            if (!passes) {
+                val intent = Intent(this, LockScreenActivity::class.java).apply {
+                    addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                            Intent.FLAG_ACTIVITY_NO_ANIMATION
+                    )
+                    putExtra(LockScreenActivity.EXTRA_REASON, block.reason)
+                }
+                startActivity(intent)
+            }
         }
 
-        if (reason != null) {
-            val intent = Intent(this, LockScreenActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                putExtra(LockScreenActivity.EXTRA_REASON, reason)
+        val now = System.currentTimeMillis()
+
+        // Báo app đang dùng + tổng phút: khi có đổi, tối đa mỗi 30 giây.
+        val shownApp = fg?.let { labelOf(it) } ?: "Màn hình tắt"
+        val changed = shownApp != lastReportedApp || total != lastReportedMinutes
+        if (changed && now - lastReportAt >= 30_000) {
+            runCatching {
+                rulesRepo.updateCurrentApp(
+                    familyId, childId, shownApp,
+                    hhmm(if (fg != null) summary.foregroundSinceMillis else now),
+                    total, missing
+                )
             }
-            startActivity(intent)
+            lastReportedApp = shownApp
+            lastReportedMinutes = total
+            lastReportAt = now
+        }
+
+        val times = hhmm(summary.firstScreenOnMillis) + "|" + hhmm(summary.lastScreenOffMillis)
+        if (times != lastTimes) {
+            runCatching {
+                rulesRepo.updateDeviceTimes(
+                    familyId, childId,
+                    hhmm(summary.firstScreenOnMillis), hhmm(summary.lastScreenOffMillis)
+                )
+            }
+            lastTimes = times
+        }
+
+        // Thống kê theo app mỗi 3 phút.
+        if (now - lastUsageUploadAt >= 180_000) {
+            val stats = summary.minutesByPackage
+                .filter { it.value > 0 && it.key !in exempt }
+                .entries.sortedByDescending { it.value }
+                .take(40)
+                .map {
+                    AppUsageStat(
+                        packageName = it.key,
+                        appName = labelOf(it.key),
+                        minutesToday = it.value,
+                        opensToday = summary.opensByPackage[it.key] ?: 0
+                    )
+                }
+            runCatching { rulesRepo.saveDailyUsage(familyId, childId, today(), stats) }
+            lastUsageUploadAt = now
+        }
+
+        // Danh sách app cài để bố mẹ chọn khi thêm giới hạn, 6 giờ một lần.
+        if (now - lastAppsUploadAt >= 6 * 3600_000L) {
+            val launch = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+            val apps = packageManager.queryIntentActivities(launch, 0)
+                .map { it.activityInfo.packageName }
+                .distinct()
+                .filter { it != packageName }
+                .map { InstalledApp(it, labelOf(it)) }
+            runCatching { rulesRepo.saveInstalledApps(familyId, childId, apps) }
+            lastAppsUploadAt = now
         }
     }
 
@@ -124,15 +247,24 @@ class LockEnforcementService : Service() {
                 "Quản lý điện thoại con",
                 NotificationManager.IMPORTANCE_LOW
             )
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
+            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
-        val notification = Notification.Builder(this, channelId)
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, channelId)
+        } else {
+            @Suppress("DEPRECATION") Notification.Builder(this)
+        }
+        val notification = builder
             .setContentTitle("Quản lý điện thoại con đang chạy")
             .setContentText("Đang theo dõi giờ dùng máy theo luật của bố mẹ")
             .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setOngoing(true)
             .build()
-        startForeground(1, notification)
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(1, notification)
+        }
     }
 
     override fun onDestroy() {

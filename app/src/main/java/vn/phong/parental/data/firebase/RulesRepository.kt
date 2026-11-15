@@ -3,10 +3,12 @@ package vn.phong.parental.data.firebase
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.Transaction
 import kotlinx.coroutines.tasks.await
 import vn.phong.parental.model.AppUsageStat
 import vn.phong.parental.model.ChildDevice
 import vn.phong.parental.model.GeneralLimit
+import vn.phong.parental.model.InstalledApp
 import vn.phong.parental.model.PairingStatus
 import vn.phong.parental.model.PerAppLimit
 
@@ -82,13 +84,15 @@ class RulesRepository(
         childId: String,
         appName: String,
         since: String,
-        todayTotalMinutes: Int
+        todayTotalMinutes: Int,
+        permMissing: String = ""
     ) {
         childDoc(familyId, childId).update(
             mapOf(
                 "currentApp" to appName,
                 "currentAppSince" to since,
                 "todayTotalMinutes" to todayTotalMinutes,
+                "permMissing" to permMissing,
                 "updatedAt" to Timestamp.now()
             )
         ).await()
@@ -113,14 +117,78 @@ class RulesRepository(
         childDoc(familyId, childId).update("fcmToken", token).await()
     }
 
-    /** Con bấm xin mở khóa / xin thêm giờ trên màn khóa. */
-    suspend fun requestUnlock(familyId: String, childId: String, message: String) {
+    /** Con bấm xin mở khóa / xin thêm giờ / SOS trên màn khóa. */
+    suspend fun requestUnlock(
+        familyId: String,
+        childId: String,
+        message: String,
+        sos: Boolean = false
+    ) {
+        val data = mutableMapOf<String, Any>(
+            "unlockRequest" to message,
+            "unlockRequestAt" to Timestamp.now(),
+            "updatedAt" to Timestamp.now()
+        )
+        if (sos) data["sosAt"] = Timestamp.now()
+        childDoc(familyId, childId).update(data).await()
+    }
+
+    /** Máy con báo quyền bị tắt (Accessibility, Usage, Admin...). */
+    suspend fun reportPermissions(familyId: String, childId: String, missing: String) {
         childDoc(familyId, childId).update(
-            mapOf(
-                "unlockRequest" to message,
-                "unlockRequestAt" to Timestamp.now()
-            )
+            mapOf("permMissing" to missing, "updatedAt" to Timestamp.now())
         ).await()
+    }
+
+    suspend fun reportAdminDisabled(familyId: String, childId: String) {
+        childDoc(familyId, childId).update(
+            mapOf("adminDisabledAt" to Timestamp.now(), "updatedAt" to Timestamp.now())
+        ).await()
+    }
+
+    // ---- Bố mẹ xử lý yêu cầu / cho thêm giờ ----
+
+    suspend fun clearUnlockRequest(familyId: String, childId: String) {
+        childDoc(familyId, childId).update(
+            mapOf("unlockRequest" to "", "updatedAt" to Timestamp.now())
+        ).await()
+    }
+
+    /** Cho thêm phút cho hôm nay; sang ngày mới thì bắt đầu lại từ số phút này. */
+    suspend fun grantBonus(familyId: String, childId: String, minutes: Int, today: String) {
+        val ref = childDoc(familyId, childId)
+        db.runTransaction(Transaction.Function<Void?> { tx ->
+            val snap = tx.get(ref)
+            val sameDay = snap.getString("bonusDate") == today
+            val old = if (sameDay) (snap.getLong("bonusMinutes")?.toInt() ?: 0) else 0
+            tx.update(
+                ref,
+                mapOf(
+                    "bonusMinutes" to old + minutes,
+                    "bonusDate" to today,
+                    "isLocked" to false,
+                    "lockReason" to "",
+                    "unlockRequest" to "",
+                    "updatedAt" to Timestamp.now()
+                )
+            )
+            null
+        }).await()
+    }
+
+    suspend fun deletePerAppLimit(familyId: String, packageName: String) {
+        perAppCollection(familyId).document(packageName).delete().await()
+    }
+
+    suspend fun saveInstalledApps(familyId: String, childId: String, apps: List<InstalledApp>) {
+        childDoc(familyId, childId)
+            .collection(FirebaseStore.META).document(FirebaseStore.APPS_DOC)
+            .set(
+                mapOf(
+                    "apps" to apps.map { mapOf("pkg" to it.packageName, "name" to it.appName) },
+                    "updatedAt" to Timestamp.now()
+                )
+            ).await()
     }
 
     suspend fun saveDailyUsage(
@@ -131,6 +199,7 @@ class RulesRepository(
     ) {
         val mapped = stats.map {
             mapOf(
+                "pkg" to it.packageName,
                 "appName" to it.appName,
                 "minutes" to it.minutesToday,
                 "opens" to it.opensToday
@@ -151,7 +220,8 @@ class RulesRepository(
         onChange: (ChildDevice?) -> Unit
     ): ListenerRegistration {
         return childDoc(familyId, childId).addSnapshotListener { snap, _ ->
-            if (snap == null || !snap.exists()) {
+            if (snap == null) return@addSnapshotListener
+            if (!snap.exists()) {
                 onChange(null)
                 return@addSnapshotListener
             }
@@ -166,7 +236,12 @@ class RulesRepository(
                     firstUnlockToday = snap.getString("firstUnlockToday") ?: "--:--",
                     lastLockToday = snap.getString("lastLockToday") ?: "--:--",
                     isLocked = snap.getBoolean("isLocked") ?: false,
-                    lockReason = snap.getString("lockReason") ?: ""
+                    lockReason = snap.getString("lockReason") ?: "",
+                    unlockRequest = snap.getString("unlockRequest") ?: "",
+                    unlockRequestAtMillis = snap.getTimestamp("unlockRequestAt")?.toDate()?.time ?: 0L,
+                    bonusMinutes = snap.getLong("bonusMinutes")?.toInt() ?: 0,
+                    bonusDate = snap.getString("bonusDate") ?: "",
+                    permMissing = snap.getString("permMissing") ?: ""
                 )
             )
         }
@@ -205,5 +280,49 @@ class RulesRepository(
             } ?: emptyList()
             onChange(list)
         }
+    }
+
+    fun listenUsage(
+        familyId: String,
+        childId: String,
+        date: String,
+        onChange: (List<AppUsageStat>) -> Unit
+    ): ListenerRegistration {
+        return childDoc(familyId, childId).collection(FirebaseStore.USAGE).document(date)
+            .addSnapshotListener { snap, _ ->
+                if (snap == null) return@addSnapshotListener
+                val raw = snap.get("stats") as? List<*> ?: emptyList<Any>()
+                onChange(
+                    raw.mapNotNull { item ->
+                        val m = item as? Map<*, *> ?: return@mapNotNull null
+                        AppUsageStat(
+                            packageName = m["pkg"] as? String ?: "",
+                            appName = m["appName"] as? String ?: "",
+                            minutesToday = (m["minutes"] as? Number)?.toInt() ?: 0,
+                            opensToday = (m["opens"] as? Number)?.toInt() ?: 0
+                        )
+                    }
+                )
+            }
+    }
+
+    fun listenInstalledApps(
+        familyId: String,
+        childId: String,
+        onChange: (List<InstalledApp>) -> Unit
+    ): ListenerRegistration {
+        return childDoc(familyId, childId).collection(FirebaseStore.META)
+            .document(FirebaseStore.APPS_DOC)
+            .addSnapshotListener { snap, _ ->
+                if (snap == null) return@addSnapshotListener
+                val raw = snap.get("apps") as? List<*> ?: emptyList<Any>()
+                onChange(
+                    raw.mapNotNull { item ->
+                        val m = item as? Map<*, *> ?: return@mapNotNull null
+                        val pkg = m["pkg"] as? String ?: return@mapNotNull null
+                        InstalledApp(pkg, m["name"] as? String ?: pkg)
+                    }.sortedBy { it.appName.lowercase() }
+                )
+            }
     }
 }

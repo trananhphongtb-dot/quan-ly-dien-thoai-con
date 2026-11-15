@@ -4,18 +4,29 @@
     <!-- Quyền khung app cần xin từng bước trên máy con. -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <uses-permission android:name="android.permission.CALL_PHONE" />
-    <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.FLASHLIGHT" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <uses-feature android:name="android.hardware.camera.flash" android:required="false" />
+
+    <!-- Chỉ cần thấy các app mở được từ màn hình chính và trình quay số,
+         không cần QUERY_ALL_PACKAGES (Google Play hạn chế quyền này). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.DIAL" />
+        </intent>
+    </queries>
 
     <application
         android:allowBackup="false"
@@ -32,6 +43,8 @@
         <activity
             android:name=".ui.LockScreenActivity"
             android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
             android:showWhenLocked="true"
             android:turnScreenOn="true" />
         <service
@@ -44,7 +57,11 @@
         <service
             android:name=".service.LockEnforcementService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="parental_control_time_limit_enforcement" />
+        </service>
         <service
             android:name=".service.ChildAccessibilityService"
             android:exported="false"

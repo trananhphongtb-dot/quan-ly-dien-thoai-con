@@ -2,24 +2,30 @@ package vn.phong.parental.ui
 
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.hardware.camera2.CameraManager
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.compose.setContent
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import vn.phong.parental.data.firebase.LocalStore
+import vn.phong.parental.data.firebase.RulesRepository
 
 /**
- * Activity màn hình khóa thật bên máy con.
- * - Chặn nút Back để con không bấm Back thoát màn khóa.
- * - Nút Gọi: mở trình quay số với số bố mẹ đã lưu (ACTION_DIAL, không cần
- *   quyền gọi trực tiếp, người dùng vẫn bấm gọi trong trình quay số).
- * - Nút Đèn pin: bật/tắt bằng CameraManager.
- * - Nút SOS / Xin mở khóa: gửi yêu cầu về Firestore cho bố mẹ.
- * - Khi activity này mở, nó đặt cờ lock_requested để AccessibilityService
- *   bật lại màn khóa nếu con thoát bằng Home.
+ * Màn hình khóa thật bên máy con.
+ * - Chặn Back khi còn đang khóa.
+ * - Gọi bố mẹ: mở trình quay số (ACTION_DIAL) với số bố mẹ đã lưu.
+ * - Đèn pin: CameraManager.
+ * - SOS / Xin mở khóa: ghi yêu cầu lên Firestore cho bố mẹ thấy.
+ * - Tự đóng khi LockEnforcementService xóa phạm vi khóa (hết khóa).
  */
 class LockScreenActivity : ComponentActivity() {
 
@@ -28,17 +34,31 @@ class LockScreenActivity : ComponentActivity() {
     }
 
     private var flashlightOn = false
+    private var reason by mutableStateOf("Máy đang bị khóa")
+    private var status by mutableStateOf<String?>(null)
+    private lateinit var store: LocalStore
+
+    private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == "lock_scope" && store.lockScope.isEmpty()) finish()
+        if (key == "lock_reason") reason = store.lockReason.ifBlank { reason }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val reason = intent.getStringExtra(EXTRA_REASON) ?: "Máy đang bị khóa"
-        getSharedPreferences("parental_local", MODE_PRIVATE)
-            .edit().putBoolean("lock_requested", true).apply()
+        store = LocalStore(this)
+        reason = intent.getStringExtra(EXTRA_REASON)
+            ?: store.lockReason.ifBlank { "Máy đang bị khóa" }
+        if (store.lockScope.isEmpty()) {
+            // Mở nhầm khi không còn khóa.
+            finish()
+            return
+        }
+        getSharedPreferences("parental_local", Context.MODE_PRIVATE)
+            .registerOnSharedPreferenceChangeListener(prefsListener)
 
-        // Chặn Back.
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                // Cố tình không làm gì: không cho Back thoát màn khóa.
+                // Không cho Back thoát màn khóa.
             }
         })
 
@@ -46,22 +66,30 @@ class LockScreenActivity : ComponentActivity() {
             MaterialTheme {
                 LockScreen(
                     lockReason = reason,
+                    status = status,
                     onCallParent = { dialParent() },
                     onToggleFlashlight = { toggleFlashlight() },
-                    onSos = { sendSos() },
-                    onRequestUnlock = { requestUnlock() }
+                    onSos = { send("SOS khẩn cấp từ máy con", sos = true) },
+                    onRequestUnlock = { send("Con xin mở khóa / xin thêm giờ", sos = false) }
                 )
             }
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        intent.getStringExtra(EXTRA_REASON)?.let { reason = it }
+    }
+
     override fun onDestroy() {
-        // Chỉ xóa cờ khi activity bị hủy hẳn; service khóa sẽ đặt lại nếu còn bị khóa.
+        runCatching {
+            getSharedPreferences("parental_local", Context.MODE_PRIVATE)
+                .unregisterOnSharedPreferenceChangeListener(prefsListener)
+        }
         super.onDestroy()
     }
 
     private fun dialParent() {
-        val store = LocalStore(this)
         val phone = store.parentPhone
         val intent = if (!phone.isNullOrBlank()) {
             Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone"))
@@ -78,16 +106,21 @@ class LockScreenActivity : ComponentActivity() {
         runCatching { manager.setTorchMode(cameraId, flashlightOn) }
     }
 
-    private fun sendSos() {
-        // SOS thực chất là 1 yêu cầu mở khóa khẩn cấp, kèm vị trí ở bước sau.
-        requestUnlock("SOS từ máy con")
-    }
-
-    private fun requestUnlock(message: String = "Con xin mở khóa") {
-        // ViewModel sẽ gọi RulesRepository.requestUnlock khi màn hình này
-        // được mở từ luồng đã ghép nối. Ở Activity độc lập này, yêu cầu được
-        // lưu cục bộ để service khóa gửi lên Firestore ở lần kiểm tra sau.
-        getSharedPreferences("parental_local", MODE_PRIVATE)
-            .edit().putString("pending_unlock_request", message).apply()
+    private fun send(message: String, sos: Boolean) {
+        val familyId = store.familyId
+        val childId = store.childId
+        if (familyId == null || childId == null) {
+            status = "Chưa ghép nối, không gửi được"
+            return
+        }
+        status = "Đang gửi cho bố mẹ..."
+        CoroutineScope(Dispatchers.IO).launch {
+            val ok = runCatching {
+                RulesRepository().requestUnlock(familyId, childId, message, sos)
+            }.isSuccess
+            runOnUiThread {
+                status = if (ok) "Đã gửi cho bố mẹ, chờ bố mẹ trả lời" else "Gửi lỗi, kiểm tra mạng rồi thử lại"
+            }
+        }
     }
 }

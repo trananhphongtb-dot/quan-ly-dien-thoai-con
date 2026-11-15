@@ -4,42 +4,83 @@ service cloud.firestore {
     function isSignedIn() {
       return request.auth != null;
     }
+    function family(familyId) {
+      return get(/databases/$(database)/documents/families/$(familyId)).data;
+    }
+    // Bố mẹ: chủ gia đình.
     function isFamilyOwner(familyId) {
+      return isSignedIn() && family(familyId).ownerUid == request.auth.uid;
+    }
+    // Máy con: uid ẩn danh đã được bố mẹ duyệt (nằm trong childUids của gia đình).
+    function isFamilyChild(familyId) {
       return isSignedIn() &&
-        get(/databases/$(database)/documents/families/$(familyId)).data.ownerUid == request.auth.uid;
+        request.auth.uid in family(familyId).get('childUids', []);
+    }
+    // Đúng máy con này (uid trùng với childUid trong doc con).
+    function isThisChild(familyId, childId) {
+      return isFamilyChild(familyId) &&
+        get(/databases/$(database)/documents/families/$(familyId)/children/$(childId)).data.childUid == request.auth.uid;
     }
 
-    // Gia đình: chỉ chủ sở hữu mới tạo / đọc / ghi.
     match /families/{familyId} {
-      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow create: if isSignedIn() &&
+        request.resource.data.ownerUid == request.auth.uid &&
+        request.resource.data.get('childUids', []).size() == 0;
       allow read, update, delete: if isFamilyOwner(familyId);
 
+      // Doc con: bố mẹ toàn quyền; máy con đọc doc của mình và chỉ được
+      // ghi các trường báo cáo trạng thái, không tự đổi khóa hay luật.
       match /children/{childId} {
-        allow read, write: if isFamilyOwner(familyId);
-      }
-      match /rules/{docId} {
-        allow read, write: if isFamilyOwner(familyId);
-        match /perApp/{packageName} {
-          allow read, write: if isFamilyOwner(familyId);
+        allow read: if isFamilyOwner(familyId) || isThisChild(familyId, childId);
+        allow create, delete: if isFamilyOwner(familyId);
+        allow update: if isFamilyOwner(familyId) ||
+          (isThisChild(familyId, childId) &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+             'currentApp', 'currentAppSince', 'todayTotalMinutes',
+             'firstUnlockToday', 'lastLockToday', 'fcmToken',
+             'unlockRequest', 'unlockRequestAt', 'sosAt',
+             'permMissing', 'adminDisabledAt', 'updatedAt'
+           ]));
+
+        match /usage/{date} {
+          allow read: if isFamilyOwner(familyId);
+          allow write: if isFamilyOwner(familyId) || isThisChild(familyId, childId);
+        }
+        // Danh sách app cài trên máy con, để bố mẹ chọn khi thêm giới hạn.
+        match /meta/{docId} {
+          allow read: if isFamilyOwner(familyId);
+          allow write: if isFamilyOwner(familyId) || isThisChild(familyId, childId);
         }
       }
-      match /children/{childId}/usage/{date} {
-        allow read, write: if isFamilyOwner(familyId);
+
+      // Luật: bố mẹ ghi, máy con chỉ đọc.
+      match /rules/{docId} {
+        allow read: if isFamilyOwner(familyId) || isFamilyChild(familyId);
+        allow write: if isFamilyOwner(familyId);
+        match /perApp/{packageName} {
+          allow read: if isFamilyOwner(familyId) || isFamilyChild(familyId);
+          allow write: if isFamilyOwner(familyId);
+        }
       }
     }
 
-    // Mã ghép nối: người đã đăng nhập (kể cả ẩn danh của máy con) mới đọc được.
-    // Tạo mã: chỉ chủ gia đình. Nhận mã: chỉ khi mã còn ở PENDING.
-    // Duyệt mã: chỉ chủ gia đình.
+    // Mã ghép nối: chỉ đọc được khi biết đúng mã (get), không liệt kê.
+    // Con nhận mã: PENDING → WAITING_APPROVAL, còn hạn, ghi đúng uid của mình.
+    // Duyệt / đổi trạng thái khác: chỉ chủ gia đình.
     match /pairingCodes/{code} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() &&
-        isFamilyOwner(request.resource.data.familyId);
-      allow update: if isSignedIn() && (
-        isFamilyOwner(resource.data.familyId) ||
-        (resource.data.status == 'PENDING' &&
-         request.resource.data.status == 'WAITING_APPROVAL')
-      );
+      allow get: if isSignedIn();
+      allow list: if false;
+      allow create: if isFamilyOwner(request.resource.data.familyId) &&
+        request.resource.data.status == 'PENDING';
+      allow update: if isFamilyOwner(resource.data.familyId) ||
+        (isSignedIn() &&
+         resource.data.status == 'PENDING' &&
+         resource.data.expiresAt > request.time &&
+         request.resource.data.status == 'WAITING_APPROVAL' &&
+         request.resource.data.childUid == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(['status', 'childName', 'childDeviceId', 'childUid']));
+      allow delete: if isFamilyOwner(resource.data.familyId);
     }
   }
 }

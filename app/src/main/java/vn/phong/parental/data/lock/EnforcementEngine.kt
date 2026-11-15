@@ -51,55 +51,54 @@ object EnforcementEngine {
         return isInWindow(limit.studyLockStart, limit.studyLockEnd, nowMinutes)
     }
 
-    /** App này có được mở lúc này không. */
-    fun isAppAllowed(
-        packageName: String,
-        limits: List<PerAppLimit>,
-        usedMinutesToday: Map<String, Int>,
-        generalLimit: GeneralLimit,
-        ownPackageName: String,
-        nowMinutes: Int = nowMinutes()
-    ): Boolean {
-        // Luôn cho mở chính app quản lý và trình quay số, để còn gọi bố mẹ.
-        if (packageName == ownPackageName) return true
-        if (packageName == "com.android.dialer" || packageName == "com.google.android.dialer") return true
+    /** Kết quả kiểm tra: lý do khóa, và có khóa cả máy hay chỉ một app. */
+    data class Block(val reason: String, val wholeDevice: Boolean, val packageName: String? = null)
 
-        // Giờ học: chỉ mở app bắt buộc (app học).
-        if (isStudyWindow(generalLimit, nowMinutes)) {
-            val limit = limits.find { it.packageName == packageName }
-            return limit?.isMandatory == true
-        }
-
-        // Ngoài giờ học: app nào hết giờ riêng thì khóa app đó.
-        val limit = limits.find { it.packageName == packageName } ?: return true
-        val used = usedMinutesToday[packageName] ?: 0
-        return used < limit.dailyMinutes
-    }
-
-    fun blockReason(
-        packageName: String,
+    /**
+     * Quyết định có khóa không. Thứ tự: khóa cả máy trước (từ xa, hết tổng
+     * giờ, giờ ngủ), rồi mới tới luật theo app. Gói được miễn trừ (màn khóa,
+     * trình quay số, launcher...) không bao giờ bị khóa theo app, còn khi
+     * khóa cả máy thì chỉ màn khóa/dialer được qua (do nơi gọi xử lý).
+     *
+     * @param packageName app đang ở foreground, null nếu chưa biết.
+     * @param exempt các gói luôn được mở khi chỉ khóa theo app.
+     * @param bonusMinutes phút bố mẹ cho thêm hôm nay, cộng vào tổng giờ.
+     */
+    fun evaluate(
+        packageName: String?,
         limits: List<PerAppLimit>,
         usedMinutesToday: Map<String, Int>,
         generalLimit: GeneralLimit,
         totalMinutesToday: Int,
-        ownPackageName: String,
+        exempt: Set<String>,
+        remoteLocked: Boolean,
+        remoteReason: String,
+        bonusMinutes: Int = 0,
         nowMinutes: Int = nowMinutes()
-    ): String? {
-        if (shouldLockDevice(generalLimit, totalMinutesToday, nowMinutes)) {
-            return "Hết giờ dùng máy hoặc đang trong giờ ngủ"
+    ): Block? {
+        if (remoteLocked) {
+            return Block(remoteReason.ifBlank { "Bố mẹ đã khóa máy" }, true)
         }
-        if (isStudyWindow(generalLimit, nowMinutes)) {
-            return "Đang trong giờ học, chỉ mở được app học"
+        val effective = generalLimit.copy(
+            dailyTotalMinutes = generalLimit.dailyTotalMinutes + bonusMinutes
+        )
+        if (totalMinutesToday >= effective.dailyTotalMinutes) {
+            return Block("Hết giờ dùng máy hôm nay, mai dùng tiếp nhé", true)
         }
+        if (isInWindow(effective.bedtimeStart, effective.bedtimeEnd, nowMinutes)) {
+            return Block("Đang trong giờ ngủ, máy tạm khóa", true)
+        }
+        if (packageName == null || packageName in exempt) return null
         val limit = limits.find { it.packageName == packageName }
+        if (isStudyWindow(effective, nowMinutes)) {
+            if (limit?.isMandatory == true) return null
+            return Block("Đang trong giờ học, chỉ mở được app học", false, packageName)
+        }
         if (limit != null) {
             val used = usedMinutesToday[packageName] ?: 0
             if (used >= limit.dailyMinutes) {
-                return "App ${limit.appName} đã hết ${limit.dailyMinutes} phút hôm nay"
+                return Block("App ${limit.appName} đã hết ${limit.dailyMinutes} phút hôm nay", false, packageName)
             }
-        }
-        if (!isAppAllowed(packageName, limits, usedMinutesToday, generalLimit, ownPackageName, nowMinutes)) {
-            return "App này đang bị khóa"
         }
         return null
     }

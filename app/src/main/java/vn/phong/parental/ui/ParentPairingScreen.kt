@@ -70,6 +70,8 @@ fun ParentPairingScreen(
     val firebaseCode by viewModel?.pairingCode?.collectAsState() ?: remember { mutableStateOf<String?>(null) }
     val error by viewModel?.error?.collectAsState() ?: remember { mutableStateOf<String?>(null) }
     val signedInEmail by viewModel?.signedInEmail?.collectAsState() ?: remember { mutableStateOf<String?>(null) }
+    val pairingStatus by viewModel?.pairingStatus?.collectAsState() ?: remember { mutableStateOf("NOT_PAIRED") }
+    val childName by viewModel?.pairingChildName?.collectAsState() ?: remember { mutableStateOf("") }
 
     fun googleSignIn() {
         if (viewModel == null || googleLoading) return
@@ -180,6 +182,12 @@ fun ParentPairingScreen(
                     ) { Text("Đăng nhập", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
                     Spacer(Modifier.height(10.dp))
                     OutlinedButton(
+                        onClick = { viewModel.parentSignUp(email, password) {} },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().height(50.dp)
+                    ) { Text("Tạo tài khoản mới (mật khẩu từ 6 ký tự)", fontSize = 15.sp, color = DarkText) }
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedButton(
                         onClick = { googleSignIn() },
                         enabled = !googleLoading,
                         shape = RoundedCornerShape(12.dp),
@@ -201,7 +209,7 @@ fun ParentPairingScreen(
                         ) {
                             Column(Modifier.padding(12.dp)) {
                                 Text("Đã đăng nhập: $it", color = Green, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                                Text("Anh sang bước 2 bấm Tạo mã ghép nối nhé.", color = Green, fontSize = 14.sp)
+                                Text("Sang bước 2, bấm Tạo mã ghép nối.", color = Green, fontSize = 14.sp)
                             }
                         }
                     }
@@ -239,10 +247,17 @@ fun ParentPairingScreen(
                         Text("Mã ghép nối:", color = SoftText, fontSize = 14.sp)
                         Text(it, fontSize = 30.sp, fontWeight = FontWeight.Bold, color = MainBlue)
                         Spacer(Modifier.height(6.dp))
-                        Text("Khi máy con nhập mã, anh bấm Duyệt.", color = SoftText, fontSize = 14.sp)
+                        Text(
+                            if (pairingStatus == "WAITING_APPROVAL")
+                                "Máy \"$childName\" đã nhập mã. Bấm Duyệt để ghép nối."
+                            else "Đang chờ máy con nhập mã...",
+                            color = if (pairingStatus == "WAITING_APPROVAL") Green else SoftText,
+                            fontSize = 14.sp
+                        )
                         Spacer(Modifier.height(14.dp))
                         Button(
                             onClick = { viewModel.approveCurrentCode { onPaired() } },
+                            enabled = pairingStatus == "WAITING_APPROVAL",
                             colors = ButtonDefaults.buttonColors(containerColor = MainBlue),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth().height(50.dp)

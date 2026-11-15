@@ -5,7 +5,8 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.tasks.await
 import vn.phong.parental.model.PairingStatus
-import kotlin.random.Random
+import com.google.firebase.firestore.FieldValue
+import java.security.SecureRandom
 
 /**
  * Ghép nối thật qua Firestore, đúng luồng đã chốt:
@@ -30,6 +31,7 @@ class PairingRepository(
         ref.set(
             mapOf(
                 "ownerUid" to ownerUid,
+                "childUids" to emptyList<String>(),
                 "createdAt" to Timestamp.now()
             )
         ).await()
@@ -38,7 +40,7 @@ class PairingRepository(
 
     /** Bố mẹ tạo mã ghép nối mới, hiệu lực 10 phút. */
     suspend fun createPairingCode(familyId: String): PairingCodeDoc {
-        val code = (100000 + Random.nextInt(900000)).toString()
+        val code = (100000 + SecureRandom().nextInt(900000)).toString()
         val expiresAt = Timestamp(
             System.currentTimeMillis() / 1000 +
                 FirebaseStore.PAIRING_CODE_VALID_MINUTES * 60, 0
@@ -55,6 +57,8 @@ class PairingRepository(
                 "status" to doc.status,
                 "childName" to "",
                 "childDeviceId" to "",
+                "childUid" to "",
+                "childId" to "",
                 "expiresAt" to expiresAt,
                 "createdAt" to Timestamp.now()
             )
@@ -69,20 +73,28 @@ class PairingRepository(
     suspend fun claimPairingCode(
         code: String,
         childName: String,
-        childDeviceId: String
+        childDeviceId: String,
+        childUid: String
     ): Boolean {
-        val snap = pairingDoc(code).get().await()
-        val doc = snap.toObject(PairingCodeDoc::class.java)?.copy(code = snap.id)
-            ?: return false
-        if (doc.status != FirebaseStore.STATUS_PENDING || doc.isExpired) return false
-        pairingDoc(code).update(
-            mapOf(
-                "status" to FirebaseStore.STATUS_WAITING_APPROVAL,
-                "childName" to childName,
-                "childDeviceId" to childDeviceId
-            )
-        ).await()
-        return true
+        val ref = pairingDoc(code)
+        return db.runTransaction { tx ->
+            val snap = tx.get(ref)
+            val doc = snap.toObject(PairingCodeDoc::class.java)?.copy(code = snap.id)
+            if (doc == null || doc.status != FirebaseStore.STATUS_PENDING || doc.isExpired) {
+                false
+            } else {
+                tx.update(
+                    ref,
+                    mapOf(
+                        "status" to FirebaseStore.STATUS_WAITING_APPROVAL,
+                        "childName" to childName,
+                        "childDeviceId" to childDeviceId,
+                        "childUid" to childUid
+                    )
+                )
+                true
+            }
+        }.await()
     }
 
     /**
@@ -98,13 +110,17 @@ class PairingRepository(
             throw IllegalStateException("Mã chưa ở trạng thái chờ duyệt")
         }
         if (doc.isExpired) throw IllegalStateException("Mã đã hết hạn 10 phút")
+        if (doc.childUid.isBlank()) throw IllegalStateException("Máy con chưa gửi định danh, nhờ con nhập lại mã")
         val childRef = familyDoc(doc.familyId)
             .collection(FirebaseStore.CHILDREN)
             .document()
-        childRef.set(
+        val batch = db.batch()
+        batch.set(
+            childRef,
             mapOf(
                 "name" to doc.childName,
                 "deviceId" to doc.childDeviceId,
+                "childUid" to doc.childUid,
                 "pairingStatus" to PairingStatus.PAIRED.name,
                 "currentApp" to "Chưa có dữ liệu",
                 "currentAppSince" to "--:--",
@@ -114,10 +130,19 @@ class PairingRepository(
                 "isLocked" to false,
                 "lockReason" to "",
                 "fcmToken" to "",
+                "unlockRequest" to "",
+                "bonusMinutes" to 0,
+                "bonusDate" to "",
+                "permMissing" to "",
                 "updatedAt" to Timestamp.now()
             )
-        ).await()
-        pairingDoc(code).update("status", FirebaseStore.STATUS_APPROVED).await()
+        )
+        batch.update(familyDoc(doc.familyId), "childUids", FieldValue.arrayUnion(doc.childUid))
+        batch.update(
+            pairingDoc(code),
+            mapOf("status" to FirebaseStore.STATUS_APPROVED, "childId" to childRef.id)
+        )
+        batch.commit().await()
         return childRef.id
     }
 
@@ -130,5 +155,15 @@ class PairingRepository(
             val doc = snap?.toObject(PairingCodeDoc::class.java)?.copy(code = snap.id)
             onChange(doc)
         }
+    }
+
+    /** Bố mẹ hủy ghép nối một máy con: xóa doc con và thu quyền uid của nó. */
+    suspend fun removeChild(familyId: String, childId: String) {
+        val childRef = familyDoc(familyId).collection(FirebaseStore.CHILDREN).document(childId)
+        val uid = childRef.get().await().getString("childUid")
+        if (uid != null) {
+            familyDoc(familyId).update("childUids", FieldValue.arrayRemove(uid)).await()
+        }
+        childRef.delete().await()
     }
 }

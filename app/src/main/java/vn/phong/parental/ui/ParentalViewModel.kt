@@ -8,25 +8,26 @@ import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import vn.phong.parental.data.firebase.FirebaseStore
 import vn.phong.parental.data.firebase.LocalStore
 import vn.phong.parental.data.firebase.PairingRepository
 import vn.phong.parental.data.firebase.ParentAuth
 import vn.phong.parental.data.firebase.RulesRepository
+import vn.phong.parental.model.AppUsageStat
 import vn.phong.parental.model.ChildDevice
 import vn.phong.parental.model.GeneralLimit
+import vn.phong.parental.model.InstalledApp
 import vn.phong.parental.model.PerAppLimit
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * ViewModel nối màn hình vào Firebase thật.
  *
- * Luồng đã chốt:
- * - Bố mẹ: đăng nhập Auth → tạo family → tạo mã 6 số → duyệt mã.
- * - Con: đăng nhập ẩn danh → nhập mã → chờ duyệt.
- * - Sau đó: bố mẹ lắng nghe realtime máy con, luật chung, luật từng app;
- *   nút khóa Tab 4 ghi isLocked lên Firestore, máy con lắng nghe và bật LockScreen.
- *
- * Màn hình vẫn giữ dữ liệu mẫu khi ViewModel chưa có dữ liệu thật,
- * để chạy thử giao diện mà không cần mạng.
+ * - Bố mẹ: đăng nhập → tạo family → tạo mã 6 số → thấy con nhập mã → duyệt.
+ * - Con: đăng nhập ẩn danh → nhập mã → chờ duyệt → cấp quyền → giám sát.
+ * - Sau đó bố mẹ nghe realtime con, luật, thống kê; ghi luật và lệnh khóa.
  */
 class ParentalViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -34,12 +35,11 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
     private val pairingRepo = PairingRepository()
     private val rulesRepo = RulesRepository()
     private val listeners = mutableListOf<ListenerRegistration>()
+    private var pairingListener: ListenerRegistration? = null
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
 
-    // Email đang đăng nhập (nếu có) — màn ghép nối hiện rõ để bố mẹ biết
-    // mình đã đăng nhập thành công, thay vì màn hình im lặng như trước.
     private val _signedInEmail = MutableStateFlow<String?>(ParentAuth.currentEmail)
     val signedInEmail: StateFlow<String?> = _signedInEmail
 
@@ -48,6 +48,10 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
 
     private val _pairingStatus = MutableStateFlow("NOT_PAIRED")
     val pairingStatus: StateFlow<String> = _pairingStatus
+
+    /** Tên máy con đã nhập mã (bố mẹ thấy trước khi bấm Duyệt). */
+    private val _pairingChildName = MutableStateFlow("")
+    val pairingChildName: StateFlow<String> = _pairingChildName
 
     private val _child = MutableStateFlow<ChildDevice?>(null)
     val child: StateFlow<ChildDevice?> = _child
@@ -58,6 +62,12 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
     private val _perAppLimits = MutableStateFlow<List<PerAppLimit>>(emptyList())
     val perAppLimits: StateFlow<List<PerAppLimit>> = _perAppLimits
 
+    private val _usage = MutableStateFlow<List<AppUsageStat>>(emptyList())
+    val usage: StateFlow<List<AppUsageStat>> = _usage
+
+    private val _installedApps = MutableStateFlow<List<InstalledApp>>(emptyList())
+    val installedApps: StateFlow<List<InstalledApp>> = _installedApps
+
     var familyId: String?
         get() = store.familyId
         set(value) { store.familyId = value }
@@ -66,16 +76,26 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
         get() = store.childId
         set(value) { store.childId = value }
 
-    fun clearError() { _error.value = null }
+    val role: String? get() = store.role
+    val childStage: String? get() = store.childStage
+    val pairingCodeSaved: String? get() = store.pairingCode
+    var parentPhone: String
+        get() = store.parentPhone ?: ""
+        set(value) { store.parentPhone = value.trim() }
 
+    fun setChildStage(stage: String) { store.childStage = stage }
+
+    fun clearError() { _error.value = null }
     fun setError(message: String) { _error.value = message }
+
+    private fun today(): String = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
 
     // ---- Bố mẹ ----
 
     fun parentSignIn(email: String, password: String, onDone: () -> Unit) {
         viewModelScope.launch {
             runCatching {
-                val uid = ParentAuth.signIn(email, password)
+                val uid = ParentAuth.signIn(email.trim(), password)
                 store.parentUid = uid
                 store.role = "PARENT"
                 _signedInEmail.value = ParentAuth.currentEmail ?: email
@@ -99,7 +119,7 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
     fun parentSignUp(email: String, password: String, onDone: () -> Unit) {
         viewModelScope.launch {
             runCatching {
-                val uid = ParentAuth.signUp(email, password)
+                val uid = ParentAuth.signUp(email.trim(), password)
                 store.parentUid = uid
                 store.role = "PARENT"
                 _signedInEmail.value = ParentAuth.currentEmail ?: email
@@ -108,12 +128,12 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    /** Tạo family nếu chưa có, rồi tạo mã ghép nối Firebase thật. */
+    /** Tạo family nếu chưa có, tạo mã ghép nối, rồi nghe trạng thái mã. */
     fun createPairingCode() {
         viewModelScope.launch {
             runCatching {
                 val uid = ParentAuth.currentUid
-                    ?: throw IllegalStateException("Bố mẹ chưa đăng nhập Firebase Auth")
+                    ?: throw IllegalStateException("Bố mẹ chưa đăng nhập, vui lòng đăng nhập trước")
                 val fid = store.familyId ?: pairingRepo.createFamily(uid).also {
                     store.familyId = it
                 }
@@ -121,6 +141,14 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
             }.onSuccess { doc ->
                 _pairingCode.value = doc.code
                 _pairingStatus.value = "PENDING"
+                _pairingChildName.value = ""
+                pairingListener?.remove()
+                pairingListener = pairingRepo.listenPairingCode(doc.code) { d ->
+                    if (d != null) {
+                        _pairingStatus.value = d.status
+                        _pairingChildName.value = d.childName
+                    }
+                }
             }.onFailure { _error.value = it.message }
         }
     }
@@ -133,23 +161,56 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
                 .onSuccess { newChildId ->
                     store.childId = newChildId
                     _pairingStatus.value = "APPROVED"
+                    pairingListener?.remove()
+                    pairingListener = null
                     onDone(newChildId)
                 }
                 .onFailure { _error.value = it.message }
         }
     }
 
+    /** Hủy ghép nối máy con hiện tại (máy con sẽ tự ngừng giám sát). */
+    fun unpairChild(onDone: () -> Unit) {
+        val fid = store.familyId ?: return
+        val cid = store.childId ?: return
+        viewModelScope.launch {
+            runCatching { pairingRepo.removeChild(fid, cid) }
+                .onSuccess {
+                    stopListening()
+                    store.childId = null
+                    _child.value = null
+                    _pairingCode.value = null
+                    _pairingStatus.value = "NOT_PAIRED"
+                    onDone()
+                }
+                .onFailure { _error.value = it.message }
+        }
+    }
+
+    fun signOutParent(onDone: () -> Unit) {
+        stopListening()
+        ParentAuth.signOut()
+        store.clear()
+        _signedInEmail.value = null
+        _child.value = null
+        _pairingCode.value = null
+        _pairingStatus.value = "NOT_PAIRED"
+        onDone()
+    }
+
     // ---- Con ----
 
-    /** Con nhập mã: đăng nhập ẩn danh trước, rồi nhận mã chờ duyệt. */
+    /** Con nhập mã: đăng nhập ẩn danh, nhận mã chờ duyệt, lưu mã để mở lại vẫn chờ tiếp. */
     fun childClaimCode(code: String, deviceName: String, onSent: () -> Unit) {
         viewModelScope.launch {
             runCatching {
-                ParentAuth.signInAnonymouslyForChild()
+                val uid = ParentAuth.currentUid ?: ParentAuth.signInAnonymouslyForChild()
                 val deviceId = Build.MODEL ?: "android-device"
-                val ok = pairingRepo.claimPairingCode(code, deviceName, deviceId)
+                val ok = pairingRepo.claimPairingCode(code, deviceName.trim(), deviceId, uid)
                 if (!ok) throw IllegalStateException("Mã sai, hết hạn hoặc đã có người nhận")
                 store.role = "CHILD"
+                store.pairingCode = code
+                store.childStage = "WAITING"
                 _pairingCode.value = code
                 _pairingStatus.value = "WAITING_APPROVAL"
             }.onSuccess { onSent() }
@@ -157,13 +218,45 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    // ---- Lắng nghe realtime và ghi luật ----
+    /**
+     * Máy con chờ bố mẹ duyệt: nghe mã, khi APPROVED thì lưu familyId/childId
+     * và chuyển sang bước cấp quyền.
+     */
+    fun childWaitForApproval(onApproved: () -> Unit) {
+        val code = store.pairingCode ?: return
+        pairingListener?.remove()
+        pairingListener = pairingRepo.listenPairingCode(code) { d ->
+            if (d == null) return@listenPairingCode
+            _pairingStatus.value = d.status
+            if (d.status == FirebaseStore.STATUS_APPROVED && d.childId.isNotBlank()) {
+                store.familyId = d.familyId
+                store.childId = d.childId
+                store.childStage = "PERMISSIONS"
+                pairingListener?.remove()
+                pairingListener = null
+                onApproved()
+            }
+        }
+    }
+
+    /** Máy con bỏ chờ, quay lại chọn vai (mã hết hạn / nhập nhầm). */
+    fun childCancelPairing(onDone: () -> Unit) {
+        pairingListener?.remove()
+        pairingListener = null
+        store.clear()
+        ParentAuth.signOut()
+        onDone()
+    }
+
+    // ---- Lắng nghe realtime và ghi luật (bố mẹ) ----
 
     fun startListening(familyId: String, childId: String) {
         stopListening()
         listeners += rulesRepo.listenChild(familyId, childId) { _child.value = it }
         listeners += rulesRepo.listenGeneralLimit(familyId) { _generalLimit.value = it }
         listeners += rulesRepo.listenPerAppLimits(familyId) { _perAppLimits.value = it }
+        listeners += rulesRepo.listenUsage(familyId, childId, today()) { _usage.value = it }
+        listeners += rulesRepo.listenInstalledApps(familyId, childId) { _installedApps.value = it }
     }
 
     fun saveGeneralLimit(limit: GeneralLimit) {
@@ -182,6 +275,14 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun deletePerAppLimit(packageName: String) {
+        val fid = store.familyId ?: return
+        viewModelScope.launch {
+            runCatching { rulesRepo.deletePerAppLimit(fid, packageName) }
+                .onFailure { _error.value = it.message }
+        }
+    }
+
     /** Nút khóa Tab 4: ghi isLocked lên Firestore, máy con nhận realtime. */
     fun setLocked(locked: Boolean, reason: String = "") {
         val fid = store.familyId ?: return
@@ -192,11 +293,21 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun requestUnlock(message: String) {
+    /** Cho con thêm phút hôm nay (đồng thời mở khóa và xóa lời xin). */
+    fun grantBonus(minutes: Int) {
         val fid = store.familyId ?: return
         val cid = store.childId ?: return
         viewModelScope.launch {
-            runCatching { rulesRepo.requestUnlock(fid, cid, message) }
+            runCatching { rulesRepo.grantBonus(fid, cid, minutes, today()) }
+                .onFailure { _error.value = it.message }
+        }
+    }
+
+    fun dismissUnlockRequest() {
+        val fid = store.familyId ?: return
+        val cid = store.childId ?: return
+        viewModelScope.launch {
+            runCatching { rulesRepo.clearUnlockRequest(fid, cid) }
                 .onFailure { _error.value = it.message }
         }
     }
@@ -208,6 +319,7 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
 
     override fun onCleared() {
         stopListening()
+        pairingListener?.remove()
         super.onCleared()
     }
 }

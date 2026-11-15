@@ -17,7 +17,15 @@ data class ChildDevice(
     val firstUnlockToday: String = "--:--",
     val lastLockToday: String = "--:--",
     val isLocked: Boolean = false,
-    val lockReason: String = ""
+    val lockReason: String = "",
+    /** Lời xin mở khóa / SOS của con, rỗng nếu không có. */
+    val unlockRequest: String = "",
+    val unlockRequestAtMillis: Long = 0L,
+    /** Phút bố mẹ cho thêm trong ngày bonusDate (yyyy-MM-dd). */
+    val bonusMinutes: Int = 0,
+    val bonusDate: String = "",
+    /** Quyền máy con đang thiếu (rỗng = đủ), để bố mẹ biết con có tắt quyền. */
+    val permMissing: String = ""
 )
 
 /** Giới hạn chung — Tab 2. */
@@ -43,7 +51,11 @@ data class PerAppLimit(
 
 /** Thống kê 1 app trong ngày — Tab 1. */
 data class AppUsageStat(
+    val packageName: String = "",
     val appName: String,
     val minutesToday: Int,
     val opensToday: Int
 )
+
+/** Một app cài trên máy con (chỉ app mở được từ màn hình chính). */
+data class InstalledApp(val packageName: String, val appName: String)

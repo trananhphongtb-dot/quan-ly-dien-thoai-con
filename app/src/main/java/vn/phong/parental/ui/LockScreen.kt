@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun LockScreen(
     lockReason: String = "Hết giờ chơi, mai dùng tiếp nhé",
+    status: String? = null,
     onCallParent: () -> Unit = {},
     onToggleFlashlight: () -> Unit = {},
     onSos: () -> Unit = {},
@@ -64,6 +65,16 @@ fun LockScreen(
                 modifier = Modifier.padding(20.dp).fillMaxWidth()
             )
         }
+        status?.let {
+            Spacer(Modifier.height(12.dp))
+            Text(
+                it,
+                color = Color(0xFFFFD54F),
+                fontSize = 15.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
         Spacer(Modifier.height(28.dp))
         Button(
             onClick = onCallParent,
@@ -82,7 +93,7 @@ fun LockScreen(
             onClick = onSos,
             shape = RoundedCornerShape(14.dp),
             modifier = Modifier.fillMaxWidth().height(56.dp)
-        ) { Text("SOS — gửi vị trí cho bố mẹ", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color.White) }
+        ) { Text("SOS — báo khẩn cho bố mẹ", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color.White) }
         Spacer(Modifier.height(12.dp))
         OutlinedButton(
             onClick = onRequestUnlock,

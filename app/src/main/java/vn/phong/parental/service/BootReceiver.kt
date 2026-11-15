@@ -14,6 +14,7 @@ class BootReceiver : BroadcastReceiver() {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
         val prefs = context.getSharedPreferences("parental_local", Context.MODE_PRIVATE)
         if (prefs.getString("role", null) != "CHILD") return
+        if (prefs.getString("child_stage", null) != "ACTIVE") return
         val serviceIntent = Intent(context, LockEnforcementService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(serviceIntent)
