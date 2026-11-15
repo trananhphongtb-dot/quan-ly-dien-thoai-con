@@ -11,7 +11,6 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -38,6 +37,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -50,12 +50,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import vn.phong.parental.data.lock.PermissionState
 import vn.phong.parental.service.ChildDeviceAdminReceiver
 
-private val BgBlue = Color(0xFFEAF2FB)
-private val MainBlue = Color(0xFF1565C0)
-private val DarkText = Color(0xFF1A2A3A)
-private val SoftText = Color(0xFF5A6B7D)
-private val Green = Color(0xFF1B8A4B)
-private val Red = Color(0xFFB3261E)
 
 /** Một dòng quyền: tên, giải thích, trạng thái, nút mở cài đặt. */
 @Composable
@@ -66,33 +60,17 @@ private fun PermissionRow(
     required: Boolean,
     onGrant: () -> Unit
 ) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(Modifier.padding(16.dp)) {
-            Row(Modifier.fillMaxWidth()) {
-                Text(title, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = DarkText, modifier = Modifier.weight(1f))
-                Text(
-                    if (granted) "Đã bật" else if (required) "Cần bật" else "Nên bật",
-                    color = if (granted) Green else Red,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
-                )
-            }
-            Spacer(Modifier.height(4.dp))
-            Text(why, color = SoftText, fontSize = 13.sp)
-            if (!granted) {
-                Spacer(Modifier.height(10.dp))
-                Button(
-                    onClick = onGrant,
-                    colors = ButtonDefaults.buttonColors(containerColor = MainBlue),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth().height(44.dp)
-                ) { Text("Mở cài đặt để bật", fontSize = 15.sp) }
-            }
+    SectionCard {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(title, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Ui.Text, modifier = Modifier.weight(1f))
+            Text(
+                if (granted) "Đã bật" else if (required) "Cần bật" else "Nên bật",
+                color = if (granted) Ui.Green else if (required) Ui.Red else Ui.Amber,
+                fontWeight = FontWeight.Bold, fontSize = 13.sp
+            )
         }
+        Text(why, color = Ui.Soft, fontSize = 13.sp)
+        if (!granted) PrimaryButton("Mở cài đặt để bật", onGrant)
     }
 }
 
@@ -150,38 +128,11 @@ fun ChildPermissionScreen(
     val phoneOk = phone.filter { it.isDigit() }.length >= 8
     val ready = usage && overlay && access && phoneOk
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(BgBlue)
-            .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MainBlue),
-            shape = RoundedCornerShape(20.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(Modifier.padding(20.dp)) {
-                Text("Cấp quyền cho máy con", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "Bố mẹ đã duyệt. Bật các quyền dưới đây để app đo giờ dùng và khóa máy đúng luật.",
-                    color = Color(0xFFD6E6F7), fontSize = 14.sp
-                )
-            }
+    ScreenScaffold("Cấp quyền cho máy con", "Bố mẹ đã duyệt. Bật các quyền dưới đây.") {
+        PermissionRow("Truy cập dữ liệu sử dụng", "Để đo máy đang dùng app nào và bao lâu.", usage, true) {
+            openSetting(context, Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
         }
-        PermissionRow(
-            "Truy cập dữ liệu sử dụng",
-            "Để đo máy đang dùng app nào và bao lâu.",
-            usage, true
-        ) { openSetting(context, Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
-        PermissionRow(
-            "Hiển thị trên ứng dụng khác",
-            "Để màn hình khóa hiện lên trên app đang mở.",
-            overlay, true
-        ) {
+        PermissionRow("Hiển thị trên ứng dụng khác", "Để màn hình khóa hiện lên trên app đang mở.", overlay, true) {
             openSetting(
                 context,
                 Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
@@ -192,62 +143,36 @@ fun ChildPermissionScreen(
             "Để bật lại màn hình khóa nếu con bấm Home hoặc đổi app. App không đọc nội dung màn hình.",
             access, true
         ) { openSetting(context, Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-        PermissionRow(
-            "Quản trị thiết bị",
-            "Để khó gỡ app khi chưa có bố mẹ đồng ý.",
-            admin, false
-        ) { openAdminRequest(context) }
-        PermissionRow(
-            "Không bị tối ưu pin",
-            "Để app không bị hệ thống tắt khi chạy nền.",
-            battery, false
-        ) {
+        PermissionRow("Quản trị thiết bị", "Để khó gỡ app khi chưa có bố mẹ đồng ý.", admin, false) {
+            openAdminRequest(context)
+        }
+        PermissionRow("Không bị tối ưu pin", "Để app không bị hệ thống tắt khi chạy nền.", battery, false) {
             openSetting(
                 context,
                 Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${context.packageName}"))
             )
         }
         if (Build.VERSION.SDK_INT >= 33) {
-            PermissionRow(
-                "Thông báo",
-                "Để thấy thông báo app đang chạy.",
-                notif, false
-            ) { notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
-        }
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(Modifier.padding(16.dp)) {
-                Text("Số điện thoại bố mẹ", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = DarkText)
-                Spacer(Modifier.height(4.dp))
-                Text("Nút \"Gọi bố mẹ\" trên màn hình khóa sẽ quay số này.", color = SoftText, fontSize = 13.sp)
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = phone,
-                    onValueChange = { onPhoneChange(it.filter { c -> c.isDigit() || c == '+' }.take(15)) },
-                    label = { Text("Số điện thoại") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                    modifier = Modifier.fillMaxWidth()
-                )
+            PermissionRow("Thông báo", "Để thấy thông báo app đang chạy.", notif, false) {
+                notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
-        Button(
-            onClick = onDone,
-            enabled = ready,
-            colors = ButtonDefaults.buttonColors(containerColor = Green),
-            shape = RoundedCornerShape(14.dp),
-            modifier = Modifier.fillMaxWidth().height(54.dp)
-        ) { Text("Hoàn tất, bắt đầu bảo vệ", fontSize = 17.sp, fontWeight = FontWeight.Bold) }
+        SectionCard("Số điện thoại bố mẹ", "Nút \"Gọi bố mẹ\" trên màn hình khóa sẽ quay số này.") {
+            OutlinedTextField(
+                value = phone,
+                onValueChange = { onPhoneChange(it.filter { c -> c.isDigit() || c == '+' }.take(15)) },
+                label = { Text("Số điện thoại") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        PrimaryButton("Hoàn tất, bắt đầu bảo vệ", onDone, enabled = ready, color = Ui.Green)
         if (!ready) {
             Text(
                 "Cần bật 3 quyền bắt buộc và nhập số điện thoại bố mẹ mới hoàn tất được.",
-                color = SoftText, fontSize = 13.sp
+                color = Ui.Soft, fontSize = 13.sp
             )
         }
-        Spacer(Modifier.height(8.dp))
     }
 }
 
@@ -260,87 +185,39 @@ fun ChildActiveScreen(
     val context = LocalContext.current
     val tick = rememberResumeTick()
     val missing = remember(tick) { PermissionState.missingText(context) }
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(BgBlue)
-            .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MainBlue),
-            shape = RoundedCornerShape(20.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(Modifier.padding(20.dp)) {
-                Text("Máy đang được bảo vệ", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(6.dp))
-                Text("App chạy nền theo luật bố mẹ đặt. Không cần mở app này.", color = Color(0xFFD6E6F7), fontSize = 14.sp)
-            }
-        }
-        if (missing.isNotEmpty()) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFFDECEA)),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(Modifier.padding(16.dp)) {
-                    Text("Đang thiếu quyền: $missing", color = Red, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    Spacer(Modifier.height(4.dp))
-                    Text("Bố mẹ cũng sẽ thấy cảnh báo này. Bật lại quyền để app khóa đúng.", color = Red, fontSize = 13.sp)
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedButton(
-                        onClick = { openSetting(context, Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("Mở cài đặt trợ năng", color = DarkText) }
-                    Spacer(Modifier.height(6.dp))
-                    OutlinedButton(
-                        onClick = { openSetting(context, Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("Mở cài đặt truy cập sử dụng", color = DarkText) }
-                    if (!PermissionState.overlay(context)) {
-                        Spacer(Modifier.height(6.dp))
-                        OutlinedButton(
-                            onClick = {
-                                openSetting(
-                                    context,
-                                    Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
-                                )
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("Mở cài đặt hiển thị trên app khác", color = DarkText) }
-                    }
-                    if (!PermissionState.admin(context)) {
-                        Spacer(Modifier.height(6.dp))
-                        OutlinedButton(
-                            onClick = { openAdminRequest(context) },
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("Bật quản trị thiết bị", color = DarkText) }
-                    }
+    ScreenScaffold("Máy đang được bảo vệ", "App chạy nền theo luật bố mẹ đặt") {
+        if (missing.isEmpty()) {
+            Notice("Mọi quyền đã bật. Không cần mở app này khi dùng máy.", NoticeKind.SUCCESS)
+        } else {
+            Notice("Đang thiếu quyền: $missing. Bố mẹ cũng thấy cảnh báo này.", NoticeKind.ERROR)
+            SectionCard("Bật lại quyền") {
+                if (!PermissionState.accessibility(context)) {
+                    SecondaryButton("Mở cài đặt trợ năng", { openSetting(context, Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) })
+                }
+                if (!PermissionState.usage(context)) {
+                    SecondaryButton("Mở cài đặt truy cập sử dụng", { openSetting(context, Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) })
+                }
+                if (!PermissionState.overlay(context)) {
+                    SecondaryButton("Mở cài đặt hiển thị trên app khác", {
+                        openSetting(
+                            context,
+                            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
+                        )
+                    })
+                }
+                if (!PermissionState.admin(context)) {
+                    SecondaryButton("Bật quản trị thiết bị", { openAdminRequest(context) })
                 }
             }
         }
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(Modifier.padding(16.dp)) {
-                Text("Số điện thoại bố mẹ", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = DarkText)
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = phone,
-                    onValueChange = { onPhoneChange(it.filter { c -> c.isDigit() || c == '+' }.take(15)) },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
+        SectionCard("Số điện thoại bố mẹ", "Dùng cho nút \"Gọi bố mẹ\" trên màn hình khóa.") {
+            OutlinedTextField(
+                value = phone,
+                onValueChange = { onPhoneChange(it.filter { c -> c.isDigit() || c == '+' }.take(15)) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }

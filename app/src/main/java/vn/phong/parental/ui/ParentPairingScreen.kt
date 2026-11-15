@@ -1,302 +1,150 @@
 package vn.phong.parental.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.NoCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import kotlinx.coroutines.launch
 import vn.phong.parental.R
-import vn.phong.parental.data.Pairing
-import vn.phong.parental.data.PairingCode
-
-private val BgBlue = Color(0xFFEAF2FB)
-private val MainBlue = Color(0xFF1565C0)
-private val DarkText = Color(0xFF1A2A3A)
-private val SoftText = Color(0xFF5A6B7D)
-private val ErrorBg = Color(0xFFFDECEA)
-private val ErrorText = Color(0xFFB3261E)
-private val Green = Color(0xFF1B8A4B)
 
 /**
- * Bên bố mẹ: đăng nhập Firebase Auth, rồi tạo mã ghép nối.
- * Đăng nhập Google dùng Credential Manager (lấy ID token mới mỗi lần),
- * không dùng GoogleSignIn cũ nữa — cách cũ hay trả về token rỗng và
- * Firebase báo "Given String is empty or null".
+ * Bên bố mẹ: đăng nhập (email hoặc Google), rồi tạo mã ghép nối và duyệt máy con.
+ * Chưa đăng nhập thì chỉ hiện khung đăng nhập; đăng nhập xong mới hiện khung ghép nối.
  */
 @Composable
 fun ParentPairingScreen(
-    viewModel: ParentalViewModel? = null,
-    onPaired: () -> Unit
+    viewModel: ParentalViewModel,
+    onPaired: () -> Unit,
+    onSignedOut: () -> Unit = {}
 ) {
-    var sampleCode by remember { mutableStateOf<PairingCode?>(null) }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var googleLoading by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val firebaseCode by viewModel?.pairingCode?.collectAsState() ?: remember { mutableStateOf<String?>(null) }
-    val error by viewModel?.error?.collectAsState() ?: remember { mutableStateOf<String?>(null) }
-    val signedInEmail by viewModel?.signedInEmail?.collectAsState() ?: remember { mutableStateOf<String?>(null) }
-    val pairingStatus by viewModel?.pairingStatus?.collectAsState() ?: remember { mutableStateOf("NOT_PAIRED") }
-    val childName by viewModel?.pairingChildName?.collectAsState() ?: remember { mutableStateOf("") }
+    val code by viewModel.pairingCode.collectAsState()
+    val error by viewModel.error.collectAsState()
+    val signedInEmail by viewModel.signedInEmail.collectAsState()
+    val status by viewModel.pairingStatus.collectAsState()
+    val childName by viewModel.pairingChildName.collectAsState()
 
     fun googleSignIn() {
-        if (viewModel == null || googleLoading) return
+        if (googleLoading) return
         googleLoading = true
+        viewModel.clearError()
         scope.launch {
             try {
                 val webClientId = context.getString(R.string.default_web_client_id)
-                if (webClientId.isBlank()) {
-                    viewModel.setError("Thiếu mã web client của Firebase, vui lòng báo lại để sửa bản build")
-                    return@launch
-                }
-                val googleIdOption = GetGoogleIdOption.Builder()
+                val option = GetGoogleIdOption.Builder()
                     .setFilterByAuthorizedAccounts(false)
                     .setServerClientId(webClientId)
+                    .setAutoSelectEnabled(false)
                     .build()
-                val request = GetCredentialRequest.Builder()
-                    .addCredentialOption(googleIdOption)
-                    .build()
-                val credentialManager = CredentialManager.create(context)
-                val result = credentialManager.getCredential(
-                    context = context,
-                    request = request
-                )
+                val request = GetCredentialRequest.Builder().addCredentialOption(option).build()
+                val result = CredentialManager.create(context).getCredential(context, request)
                 val credential = result.credential
                 if (credential is CustomCredential &&
                     credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
                 ) {
-                    val googleCredential = GoogleIdTokenCredential.createFrom(credential.data)
-                    val idToken = googleCredential.idToken
-                    if (idToken.isBlank()) {
-                        viewModel.setError("Google không trả về ID token hợp lệ, vui lòng bấm đăng nhập lại")
+                    val token = GoogleIdTokenCredential.createFrom(credential.data).idToken
+                    if (token.isBlank()) {
+                        viewModel.setError("Google không trả về mã xác thực, bấm đăng nhập lại.")
                     } else {
-                        viewModel.parentGoogleSignIn(idToken) {}
+                        viewModel.parentGoogleSignIn(token) {}
                     }
                 } else {
-                    viewModel.setError("Không lấy được thông tin tài khoản Google, vui lòng thử lại")
+                    viewModel.setError("Không lấy được tài khoản Google, thử lại.")
                 }
+            } catch (e: GetCredentialCancellationException) {
+                // Bố mẹ tự đóng hộp chọn tài khoản, không coi là lỗi.
+            } catch (e: NoCredentialException) {
+                viewModel.setError(
+                    "Máy chưa có tài khoản Google nào để chọn. Thêm tài khoản Google trong Cài đặt máy, " +
+                        "hoặc đăng nhập bằng email."
+                )
             } catch (e: Exception) {
-                viewModel.setError(e.message ?: "Đăng nhập Google thất bại, vui lòng thử lại")
+                viewModel.setError(
+                    "Đăng nhập Google lỗi (${e.javaClass.simpleName}): ${e.message ?: "không rõ"}. " +
+                        "Nếu lỗi lặp lại, nhờ người cài app kiểm tra SHA-1 trong Firebase."
+                )
             } finally {
                 googleLoading = false
             }
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(BgBlue)
-            .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MainBlue),
-            shape = RoundedCornerShape(20.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(Modifier.padding(20.dp)) {
-                Text(
-                    "Quản lý điện thoại con",
-                    color = Color.White,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "Vai trò: Bố Mẹ",
-                    color = Color(0xFFD6E6F7),
-                    fontSize = 15.sp
-                )
-            }
-        }
+    ScreenScaffold("Bố Mẹ", "Đăng nhập rồi ghép nối với máy con") {
+        error?.let { Notice(it, NoticeKind.ERROR) { TextButton(onClick = { viewModel.clearError() }) { Text("Đóng") } } }
 
-        if (viewModel != null) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                shape = RoundedCornerShape(20.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(Modifier.padding(20.dp)) {
-                    Text("Bước 1: Đăng nhập", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = DarkText)
-                    Spacer(Modifier.height(4.dp))
-                    Text("Đăng nhập bằng Google hoặc bằng email đã đăng ký.", color = SoftText, fontSize = 14.sp)
-                    Spacer(Modifier.height(14.dp))
-                    OutlinedTextField(
-                        value = email,
-                        onValueChange = { email = it },
-                        label = { Text("Email bố mẹ") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = password,
-                        onValueChange = { password = it },
-                        label = { Text("Mật khẩu") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    Spacer(Modifier.height(14.dp))
-                    Button(
-                        onClick = { viewModel.parentSignIn(email, password) {} },
-                        colors = ButtonDefaults.buttonColors(containerColor = MainBlue),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().height(50.dp)
-                    ) { Text("Đăng nhập", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedButton(
-                        onClick = { viewModel.parentSignUp(email, password) {} },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().height(50.dp)
-                    ) { Text("Tạo tài khoản mới (mật khẩu từ 6 ký tự)", fontSize = 15.sp, color = DarkText) }
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedButton(
-                        onClick = { googleSignIn() },
-                        enabled = !googleLoading,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().height(50.dp)
-                    ) {
-                        Text(
-                            if (googleLoading) "Đang đăng nhập..." else "Đăng nhập bằng Google",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = DarkText
-                        )
-                    }
-                    signedInEmail?.let {
-                        Spacer(Modifier.height(12.dp))
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(Modifier.padding(12.dp)) {
-                                Text("Đã đăng nhập: $it", color = Green, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                                Text("Sang bước 2, bấm Tạo mã ghép nối.", color = Green, fontSize = 14.sp)
-                            }
-                        }
-                    }
-                    error?.let {
-                        Spacer(Modifier.height(12.dp))
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = ErrorBg),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Lỗi: $it", color = ErrorText, fontSize = 14.sp, modifier = Modifier.padding(12.dp))
-                        }
-                    }
-                }
-            }
-
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                shape = RoundedCornerShape(20.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(Modifier.padding(20.dp)) {
-                    Text("Bước 2: Tạo mã ghép nối", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = DarkText)
-                    Spacer(Modifier.height(4.dp))
-                    Text("Mã có hiệu lực 10 phút. Đưa mã này cho máy con nhập.", color = SoftText, fontSize = 14.sp)
-                    Spacer(Modifier.height(14.dp))
-                    Button(
-                        onClick = { viewModel.createPairingCode() },
-                        colors = ButtonDefaults.buttonColors(containerColor = Green),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().height(50.dp)
-                    ) { Text("Tạo mã ghép nối mới", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
-                    firebaseCode?.let {
-                        Spacer(Modifier.height(16.dp))
-                        Text("Mã ghép nối:", color = SoftText, fontSize = 14.sp)
-                        Text(it, fontSize = 30.sp, fontWeight = FontWeight.Bold, color = MainBlue)
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            if (pairingStatus == "WAITING_APPROVAL")
-                                "Máy \"$childName\" đã nhập mã. Bấm Duyệt để ghép nối."
-                            else "Đang chờ máy con nhập mã...",
-                            color = if (pairingStatus == "WAITING_APPROVAL") Green else SoftText,
-                            fontSize = 14.sp
-                        )
-                        Spacer(Modifier.height(14.dp))
-                        Button(
-                            onClick = { viewModel.approveCurrentCode { onPaired() } },
-                            enabled = pairingStatus == "WAITING_APPROVAL",
-                            colors = ButtonDefaults.buttonColors(containerColor = MainBlue),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth().height(50.dp)
-                        ) { Text("Duyệt máy con, vào app", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
-                    }
-                }
+        if (signedInEmail == null) {
+            SectionCard("Đăng nhập", "Dùng email đã đăng ký hoặc tài khoản Google.") {
+                OutlinedTextField(
+                    value = email, onValueChange = { email = it },
+                    label = { Text("Email") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = password, onValueChange = { password = it },
+                    label = { Text("Mật khẩu") }, singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                PrimaryButton("Đăng nhập", { viewModel.parentSignIn(email, password) {} })
+                SecondaryButton("Tạo tài khoản mới (mật khẩu từ 6 ký tự)", { viewModel.parentSignUp(email, password) {} })
+                Text("hoặc", color = Ui.Soft, fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                SecondaryButton(
+                    if (googleLoading) "Đang mở Google..." else "Đăng nhập bằng Google",
+                    { googleSignIn() }, enabled = !googleLoading
+                )
             }
         } else {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                shape = RoundedCornerShape(20.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(Modifier.padding(20.dp)) {
-                    Text("Tạo mã ghép nối cho máy con", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = DarkText)
-                    Spacer(Modifier.height(14.dp))
-                    Button(
-                        onClick = { sampleCode = Pairing.generateCode() },
-                        colors = ButtonDefaults.buttonColors(containerColor = Green),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().height(50.dp)
-                    ) { Text("Tạo mã ghép nối mới", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
-                    sampleCode?.let {
-                        Spacer(Modifier.height(16.dp))
-                        Text("Mã ghép nối:", color = SoftText, fontSize = 14.sp)
-                        Text(it.code, fontSize = 30.sp, fontWeight = FontWeight.Bold, color = MainBlue)
-                        Spacer(Modifier.height(6.dp))
-                        Text("Hiệu lực 10 phút. Đưa mã này cho máy con nhập hoặc quét QR.", color = SoftText, fontSize = 14.sp)
-                        Spacer(Modifier.height(14.dp))
-                        Button(
-                            onClick = onPaired,
-                            colors = ButtonDefaults.buttonColors(containerColor = MainBlue),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth().height(50.dp)
-                        ) { Text("Đã duyệt máy con, vào app", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
+            Notice("Đã đăng nhập: $signedInEmail", NoticeKind.SUCCESS)
+            SectionCard("Ghép nối máy con", "Mã có hiệu lực 10 phút. Đưa mã cho máy con nhập.") {
+                PrimaryButton(
+                    if (code == null) "Tạo mã ghép nối" else "Tạo mã mới",
+                    { viewModel.createPairingCode() }, color = Ui.Green
+                )
+                code?.let {
+                    Text(
+                        it.chunked(3).joinToString(" "),
+                        fontSize = 40.sp, fontWeight = FontWeight.Bold, color = Ui.Primary,
+                        letterSpacing = 4.sp, textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                    )
+                    if (status == "WAITING_APPROVAL") {
+                        Notice("Máy \"$childName\" đã nhập mã. Bấm Duyệt để ghép nối.", NoticeKind.SUCCESS)
+                    } else {
+                        Notice("Đang chờ máy con nhập mã...", NoticeKind.INFO)
                     }
+                    PrimaryButton(
+                        "Duyệt máy con, vào app",
+                        { viewModel.approveCurrentCode { onPaired() } },
+                        enabled = status == "WAITING_APPROVAL"
+                    )
                 }
             }
+            TextButton(
+                onClick = { viewModel.signOutParent(onSignedOut) },
+                modifier = Modifier.align(androidx.compose.ui.Alignment.CenterHorizontally)
+            ) { Text("Đăng xuất", color = Ui.Soft) }
         }
-        Spacer(Modifier.height(8.dp))
     }
 }

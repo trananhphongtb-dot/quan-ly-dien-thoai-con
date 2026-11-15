@@ -1,86 +1,55 @@
 package vn.phong.parental.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import vn.phong.parental.model.Role
 
-/**
- * Màn đầu tiên khi cài app: bắt buộc chọn vai.
- * Chưa chọn thì không vào được trong.
- */
+/** Màn đầu tiên khi cài app: chọn vai Bố Mẹ hoặc Con. */
 @Composable
 fun RoleSelectionScreen(onRoleSelected: (Role) -> Unit) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFFEAF2FB))
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center
+        modifier = Modifier.fillMaxSize().background(Ui.Bg).padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1565C0)),
-            shape = RoundedCornerShape(24.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(Modifier.padding(24.dp)) {
-                Text(
-                    "Quản lý điện thoại con",
-                    color = Color.White,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "Bạn dùng app này với vai trò nào?",
-                    color = Color(0xFFD6E6F7),
-                    fontSize = 16.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
+        Text("Quản lý điện thoại con", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Ui.Primary, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(6.dp))
+        Text("Bạn dùng máy này với vai trò nào?", fontSize = 15.sp, color = Ui.Soft, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(28.dp))
+        RoleCard("Tôi là Bố Mẹ", "Đặt luật, theo dõi và khóa máy của con", Ui.Primary, Color.White) { onRoleSelected(Role.PARENT) }
+        Spacer(Modifier.height(12.dp))
+        RoleCard("Tôi là Con", "Nhập mã do bố mẹ đưa để ghép nối", Color.White, Ui.Text) { onRoleSelected(Role.CHILD) }
         Spacer(Modifier.height(20.dp))
         Text(
-            "Chọn 1 lần. Sau khi ghép nối, máy con không tự đổi sang vai Bố Mẹ được.",
-            color = Color(0xFF5A6B7D),
-            fontSize = 14.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
+            "Chọn đúng vai ngay từ đầu. Sau khi ghép nối, máy con không tự đổi sang vai Bố Mẹ được.",
+            fontSize = 13.sp, color = Ui.Soft, textAlign = TextAlign.Center
         )
-        Spacer(Modifier.height(24.dp))
-        Button(
-            onClick = { onRoleSelected(Role.PARENT) },
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0)),
-            shape = RoundedCornerShape(14.dp),
-            modifier = Modifier.fillMaxWidth().height(56.dp)
-        ) { Text("Tôi là Bố Mẹ", fontSize = 17.sp, fontWeight = FontWeight.Bold) }
-        Spacer(Modifier.height(12.dp))
-        OutlinedButton(
-            onClick = { onRoleSelected(Role.CHILD) },
-            shape = RoundedCornerShape(14.dp),
-            modifier = Modifier.fillMaxWidth().height(56.dp)
-        ) { Text("Tôi là Con", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1A2A3A)) }
+    }
+}
+
+@Composable
+private fun RoleCard(title: String, sub: String, bg: Color, fg: Color, onClick: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(bg)
+            .clickable(onClick = onClick)
+            .padding(20.dp)
+    ) {
+        Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = fg)
+        Spacer(Modifier.height(4.dp))
+        Text(sub, fontSize = 13.sp, color = if (bg == Color.White) Ui.Soft else Color(0xFFCFE0F6))
     }
 }

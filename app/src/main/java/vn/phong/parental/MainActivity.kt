@@ -5,7 +5,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -15,6 +14,7 @@ import androidx.core.content.ContextCompat
 import vn.phong.parental.data.firebase.ParentAuth
 import vn.phong.parental.model.Role
 import vn.phong.parental.service.LockEnforcementService
+import vn.phong.parental.ui.AppTheme
 import vn.phong.parental.ui.ChildActiveScreen
 import vn.phong.parental.ui.ChildPairingScreen
 import vn.phong.parental.ui.ChildPermissionScreen
@@ -58,7 +58,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
+            AppTheme {
                 var screen by remember { mutableStateOf(initialScreen()) }
                 var phone by remember { mutableStateOf(viewModel.parentPhone) }
 
@@ -78,9 +78,11 @@ class MainActivity : ComponentActivity() {
                     Screen.ROLE -> RoleSelectionScreen { role ->
                         screen = if (role == Role.PARENT) Screen.PARENT_PAIRING else Screen.CHILD_PAIRING
                     }
-                    Screen.PARENT_PAIRING -> ParentPairingScreen(viewModel = viewModel) {
-                        screen = Screen.PARENT_HOME
-                    }
+                    Screen.PARENT_PAIRING -> ParentPairingScreen(
+                        viewModel = viewModel,
+                        onPaired = { screen = Screen.PARENT_HOME },
+                        onSignedOut = { screen = Screen.ROLE }
+                    )
                     Screen.CHILD_PAIRING -> ChildPairingScreen(viewModel = viewModel) {
                         screen = Screen.CHILD_WAITING
                     }

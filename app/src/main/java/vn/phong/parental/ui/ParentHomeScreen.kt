@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -25,8 +26,15 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -50,12 +58,12 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private val BgBlue = Color(0xFFEAF2FB)
-private val MainBlue = Color(0xFF1565C0)
-private val DarkText = Color(0xFF1A2A3A)
-private val SoftText = Color(0xFF5A6B7D)
-private val Green = Color(0xFF1B8A4B)
-private val Red = Color(0xFFB3261E)
+private val BgBlue = Ui.Bg
+private val MainBlue = Ui.Primary
+private val DarkText = Ui.Text
+private val SoftText = Ui.Soft
+private val Green = Ui.Green
+private val Red = Ui.Red
 private val TimeRegex = Regex("^([01]\\d|2[0-3]):[0-5]\\d$")
 
 /**
@@ -76,56 +84,40 @@ fun ParentHomeScreen(
     val installed by viewModel.installedApps.collectAsState()
     val error by viewModel.error.collectAsState()
     var tab by remember { mutableIntStateOf(0) }
-    val titles = listOf("Theo dõi", "Giới hạn chung", "Từng app", "Khóa máy")
+    val titles = listOf("Theo dõi", "Giới hạn", "Từng app", "Khóa máy")
+    val icons = listOf(Icons.Filled.Home, Icons.Filled.Settings, Icons.AutoMirrored.Filled.List, Icons.Filled.Lock)
 
     Column(modifier = Modifier.fillMaxSize().background(BgBlue)) {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MainBlue),
-            shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp),
-            modifier = Modifier.fillMaxWidth()
+        Column(
+            Modifier.fillMaxWidth().background(MainBlue)
+                .statusBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 14.dp)
         ) {
-            Column(Modifier.padding(20.dp)) {
-                Text(
-                    "Máy của ${child?.name?.ifBlank { "con" } ?: "con"}",
-                    color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    when {
-                        child == null -> "Đang tải dữ liệu..."
-                        child!!.isLocked -> "Đang bị khóa"
-                        else -> "Đang mở"
-                    },
-                    color = Color(0xFFD6E6F7), fontSize = 15.sp
-                )
-            }
-        }
-        TabRow(selectedTabIndex = tab, containerColor = Color.White) {
-            titles.forEachIndexed { index, title ->
-                Tab(
-                    selected = tab == index,
-                    onClick = { tab = index },
-                    text = { Text(title, fontSize = 13.sp, fontWeight = if (tab == index) FontWeight.Bold else FontWeight.Normal) }
-                )
-            }
+            Text(
+                "Máy của ${child?.name?.ifBlank { "con" } ?: "con"}",
+                color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                when {
+                    child == null -> "Đang tải dữ liệu..."
+                    child!!.isLocked -> "Đang bị khóa"
+                    else -> "Đang mở"
+                },
+                color = Color(0xFFCFE0F6), fontSize = 13.sp
+            )
         }
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .weight(1f)
+                .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             error?.let {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFDECEA)),
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Lỗi: $it", color = Red, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                        TextButton(onClick = { viewModel.clearError() }) { Text("Đóng") }
-                    }
+                Notice("Lỗi: $it", NoticeKind.ERROR) {
+                    TextButton(onClick = { viewModel.clearError() }) { Text("Đóng") }
                 }
             }
             val c = child
@@ -136,6 +128,21 @@ fun ParentHomeScreen(
                 3 -> LockTab(c, viewModel, onSignedOut, onUnpaired)
             }
             Spacer(Modifier.height(8.dp))
+        }
+        NavigationBar(containerColor = Color.White) {
+            titles.forEachIndexed { index, title ->
+                NavigationBarItem(
+                    selected = tab == index,
+                    onClick = { tab = index },
+                    icon = { Icon(icons[index], contentDescription = title) },
+                    label = { Text(title, fontSize = 11.sp) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = Color.White,
+                        selectedTextColor = MainBlue,
+                        indicatorColor = MainBlue
+                    )
+                )
+            }
         }
     }
 }
@@ -516,13 +523,7 @@ private fun LockTab(
 
 @Composable
 private fun WhiteCard(content: @Composable () -> Unit) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        shape = RoundedCornerShape(20.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(Modifier.padding(18.dp)) { content() }
-    }
+    SectionCard { content() }
 }
 
 @Composable
@@ -530,6 +531,8 @@ private fun StatCard(label: String, value: String, modifier: Modifier = Modifier
     Card(
         colors = CardDefaults.cardColors(containerColor = Color.White),
         shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Ui.Line),
+        elevation = CardDefaults.cardElevation(0.dp),
         modifier = modifier
     ) {
         Column(Modifier.padding(14.dp)) {

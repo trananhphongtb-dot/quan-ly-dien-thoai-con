@@ -9,29 +9,16 @@ android {
     namespace = "vn.phong.parental"
     compileSdk = 36
 
-    // Ký debug bằng key ổn định khi workflow khôi phục
-    // app/parental-signing.jks và cấp mật khẩu qua biến môi trường.
-    // Không có key thì Gradle dùng key debug mặc định như trước.
-    val parentalKeystore = file("parental-signing.jks")
-    val parentalStorePassword = System.getenv("SIGNING_STORE_PASSWORD")
-    val parentalKeyPassword = System.getenv("SIGNING_KEY_PASSWORD")
-    val useParentalSigning =
-        parentalKeystore.exists() && parentalStorePassword != null && parentalKeyPassword != null
+    // Ký debug luôn bằng cùng một key (app/debug.keystore, mật khẩu android).
+    // Nhờ vậy dấu vân tay SHA-1 không đổi giữa các lần build trên GitHub và
+    // chỉ cần đăng ký 1 lần trong Firebase cho Đăng nhập Google.
+    // Đây là key thử nghiệm, KHÔNG dùng để phát hành lên Google Play.
     signingConfigs {
-        create("parental") {
-            if (useParentalSigning) {
-                storeFile = parentalKeystore
-                storePassword = parentalStorePassword
-                keyAlias = "parental"
-                keyPassword = parentalKeyPassword
-            }
-        }
-    }
-    buildTypes {
-        debug {
-            if (useParentalSigning) {
-                signingConfig = signingConfigs.getByName("parental")
-            }
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
         }
     }
 
