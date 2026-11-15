@@ -27,7 +27,6 @@ import vn.phong.parental.data.lock.Exempt
 import vn.phong.parental.data.lock.PermissionState
 import vn.phong.parental.data.lock.UsageTracker
 import vn.phong.parental.model.AppUsageStat
-import vn.phong.parental.model.ChildDevice
 import vn.phong.parental.model.GeneralLimit
 import vn.phong.parental.model.InstalledApp
 import vn.phong.parental.model.PerAppLimit
