@@ -21,6 +21,9 @@ import vn.phong.parental.model.PerAppLimit
 class RulesRepository(
     private val db: FirebaseFirestore = FirebaseFirestore.getInstance()
 ) {
+    /** Nơi nhận lỗi từ các listener (ví dụ PERMISSION_DENIED), để hiện cho người dùng. */
+    var errorSink: ((String) -> Unit)? = null
+
     private fun childDoc(familyId: String, childId: String) =
         db.collection(FirebaseStore.FAMILIES).document(familyId)
             .collection(FirebaseStore.CHILDREN).document(childId)
@@ -133,6 +136,11 @@ class RulesRepository(
         childDoc(familyId, childId).update(data).await()
     }
 
+    /** Máy con báo "còn sống" để bố mẹ biết đang online. */
+    suspend fun heartbeat(familyId: String, childId: String) {
+        childDoc(familyId, childId).update("updatedAt", Timestamp.now()).await()
+    }
+
     /** Máy con báo quyền bị tắt (Accessibility, Usage, Admin...). */
     suspend fun reportPermissions(familyId: String, childId: String, missing: String) {
         childDoc(familyId, childId).update(
@@ -219,10 +227,15 @@ class RulesRepository(
         childId: String,
         onChange: (ChildDevice?) -> Unit
     ): ListenerRegistration {
-        return childDoc(familyId, childId).addSnapshotListener { snap, _ ->
+        return childDoc(familyId, childId).addSnapshotListener { snap, err ->
+            if (err != null) {
+                errorSink?.invoke("${err.code}: ${err.message}")
+                return@addSnapshotListener
+            }
             if (snap == null) return@addSnapshotListener
             if (!snap.exists()) {
-                onChange(null)
+                // Bản cache chưa có doc không có nghĩa là đã bị xóa; chỉ tin bản từ máy chủ.
+                if (!snap.metadata.isFromCache) onChange(null)
                 return@addSnapshotListener
             }
             onChange(
@@ -241,7 +254,8 @@ class RulesRepository(
                     unlockRequestAtMillis = snap.getTimestamp("unlockRequestAt")?.toDate()?.time ?: 0L,
                     bonusMinutes = snap.getLong("bonusMinutes")?.toInt() ?: 0,
                     bonusDate = snap.getString("bonusDate") ?: "",
-                    permMissing = snap.getString("permMissing") ?: ""
+                    permMissing = snap.getString("permMissing") ?: "",
+                    updatedAtMillis = snap.getTimestamp("updatedAt")?.toDate()?.time ?: 0L
                 )
             )
         }
@@ -251,7 +265,11 @@ class RulesRepository(
         familyId: String,
         onChange: (GeneralLimit) -> Unit
     ): ListenerRegistration {
-        return generalDoc(familyId).addSnapshotListener { snap, _ ->
+        return generalDoc(familyId).addSnapshotListener { snap, err ->
+            if (err != null) {
+                errorSink?.invoke("${err.code}: ${err.message}")
+                return@addSnapshotListener
+            }
             if (snap == null || !snap.exists()) return@addSnapshotListener
             onChange(
                 GeneralLimit(
@@ -269,7 +287,11 @@ class RulesRepository(
         familyId: String,
         onChange: (List<PerAppLimit>) -> Unit
     ): ListenerRegistration {
-        return perAppCollection(familyId).addSnapshotListener { snap, _ ->
+        return perAppCollection(familyId).addSnapshotListener { snap, err ->
+            if (err != null) {
+                errorSink?.invoke("${err.code}: ${err.message}")
+                return@addSnapshotListener
+            }
             val list = snap?.documents?.map { doc ->
                 PerAppLimit(
                     packageName = doc.id,
@@ -289,7 +311,11 @@ class RulesRepository(
         onChange: (List<AppUsageStat>) -> Unit
     ): ListenerRegistration {
         return childDoc(familyId, childId).collection(FirebaseStore.USAGE).document(date)
-            .addSnapshotListener { snap, _ ->
+            .addSnapshotListener { snap, err ->
+            if (err != null) {
+                errorSink?.invoke("${err.code}: ${err.message}")
+                return@addSnapshotListener
+            }
                 if (snap == null) return@addSnapshotListener
                 val raw = snap.get("stats") as? List<*> ?: emptyList<Any>()
                 onChange(
@@ -313,7 +339,11 @@ class RulesRepository(
     ): ListenerRegistration {
         return childDoc(familyId, childId).collection(FirebaseStore.META)
             .document(FirebaseStore.APPS_DOC)
-            .addSnapshotListener { snap, _ ->
+            .addSnapshotListener { snap, err ->
+            if (err != null) {
+                errorSink?.invoke("${err.code}: ${err.message}")
+                return@addSnapshotListener
+            }
                 if (snap == null) return@addSnapshotListener
                 val raw = snap.get("apps") as? List<*> ?: emptyList<Any>()
                 onChange(

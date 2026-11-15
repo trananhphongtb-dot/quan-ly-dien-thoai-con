@@ -1,6 +1,17 @@
 package vn.phong.parental.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -88,24 +99,31 @@ fun ParentHomeScreen(
     val icons = listOf(Icons.Filled.Home, Icons.Filled.Settings, Icons.AutoMirrored.Filled.List, Icons.Filled.Lock)
 
     Column(modifier = Modifier.fillMaxSize().background(BgBlue)) {
-        Column(
-            Modifier.fillMaxWidth().background(MainBlue)
+        val now = System.currentTimeMillis()
+        val online = child != null && child!!.updatedAtMillis > 0 && now - child!!.updatedAtMillis < 150_000
+        Row(
+            Modifier.fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(Ui.PrimaryDark, Ui.Primary)))
                 .statusBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 14.dp)
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                "Máy của ${child?.name?.ifBlank { "con" } ?: "con"}",
-                color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                when {
-                    child == null -> "Đang tải dữ liệu..."
-                    child!!.isLocked -> "Đang bị khóa"
-                    else -> "Đang mở"
-                },
-                color = Color(0xFFCFE0F6), fontSize = 13.sp
-            )
+            AppAvatar(child?.name?.ifBlank { "Con" } ?: "Con", 48)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    child?.name?.ifBlank { "Máy của con" } ?: "Máy của con",
+                    color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StatusChip(
+                        if (child == null) "Đang tải" else if (online) "Online" else "Mất kết nối",
+                        if (online) Ui.Green else Ui.Amber
+                    )
+                    if (child?.isLocked == true) StatusChip("Đang khóa", Ui.Red)
+                }
+            }
         }
         Column(
             modifier = Modifier
@@ -122,7 +140,7 @@ fun ParentHomeScreen(
             }
             val c = child
             when (tab) {
-                0 -> TrackTab(c, usage, viewModel)
+                0 -> TrackTab(c, general, usage, viewModel)
                 1 -> GeneralTab(general) { viewModel.saveGeneralLimit(it) }
                 2 -> PerAppTab(perApp, usage, installed, viewModel)
                 3 -> LockTab(c, viewModel, onSignedOut, onUnpaired)
@@ -152,83 +170,142 @@ fun ParentHomeScreen(
 @Composable
 private fun TrackTab(
     child: ChildDevice?,
+    general: GeneralLimit,
     usage: List<vn.phong.parental.model.AppUsageStat>,
     viewModel: ParentalViewModel
 ) {
     if (child == null) {
-        WhiteCard { Text("Chưa có dữ liệu từ máy con.", color = SoftText, fontSize = 15.sp) }
+        SectionCard("Chưa có dữ liệu từ máy con") {
+            Text("Mở app trên máy con và chờ vài giây. Nếu mãi không có, kiểm tra mạng của máy con.", color = SoftText, fontSize = 14.sp)
+        }
         return
     }
+    val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+    val bonus = if (child.bonusDate == today) child.bonusMinutes else 0
+    val limit = general.dailyTotalMinutes + bonus
     if (child.permMissing.isNotBlank()) {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFFDECEA)),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(Modifier.padding(16.dp)) {
-                Text("Máy con đang thiếu quyền", color = Red, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                Text(child.permMissing, color = Red, fontSize = 14.sp)
-                Text("Nhờ con bật lại, nếu không app có thể không khóa được.", color = Red, fontSize = 13.sp)
-            }
-        }
+        Notice("Máy con đang thiếu quyền: ${child.permMissing}. Nhờ con bật lại, nếu không app có thể không khóa được.", NoticeKind.ERROR)
     }
     if (child.unlockRequest.isNotBlank()) {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF4E0)),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(Modifier.padding(16.dp)) {
-                Text("Con đang xin: ${child.unlockRequest}", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = DarkText)
-                if (child.unlockRequestAtMillis > 0) {
-                    Text(
-                        "Lúc " + SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(child.unlockRequestAtMillis)),
-                        color = SoftText, fontSize = 13.sp
-                    )
-                }
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = { viewModel.grantBonus(15) },
-                        colors = ButtonDefaults.buttonColors(containerColor = Green),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.weight(1f)
-                    ) { Text("Cho +15 phút") }
-                    Button(
-                        onClick = { viewModel.grantBonus(30) },
-                        colors = ButtonDefaults.buttonColors(containerColor = Green),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.weight(1f)
-                    ) { Text("Cho +30 phút") }
-                }
-                TextButton(onClick = { viewModel.dismissUnlockRequest() }) { Text("Bỏ qua lời xin") }
+        SectionCard("Con đang xin") {
+            Text(child.unlockRequest, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = DarkText)
+            if (child.unlockRequestAtMillis > 0) {
+                Text(
+                    "Lúc " + SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(child.unlockRequestAtMillis)),
+                    color = SoftText, fontSize = 13.sp
+                )
             }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PrimaryButton("Cho +15 phút", { viewModel.grantBonus(15) }, Modifier.weight(1f), color = Green)
+                PrimaryButton("Cho +30 phút", { viewModel.grantBonus(30) }, Modifier.weight(1f), color = Green)
+            }
+            TextButton(onClick = { viewModel.dismissUnlockRequest() }) { Text("Bỏ qua lời xin") }
+        }
+    }
+    SectionCard {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            UsageRing(child.todayTotalMinutes, limit)
+            Spacer(Modifier.height(8.dp))
+            val left = (limit - child.todayTotalMinutes).coerceAtLeast(0)
+            Text(
+                if (child.todayTotalMinutes >= limit) "Đã hết giờ dùng hôm nay"
+                else "Còn ${left / 60} giờ ${left % 60} phút",
+                fontWeight = FontWeight.Bold, fontSize = 16.sp,
+                color = if (child.todayTotalMinutes >= limit) Red else DarkText
+            )
+            if (bonus > 0) Text("Đã cho thêm $bonus phút hôm nay", color = SoftText, fontSize = 13.sp)
         }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-        StatCard("Hôm nay", "${child.todayTotalMinutes} phút", Modifier.weight(1f))
         StatCard("Mở máy", child.firstUnlockToday, Modifier.weight(1f))
         StatCard("Đóng máy", child.lastLockToday, Modifier.weight(1f))
     }
-    WhiteCard {
-        Text("Đang dùng", color = SoftText, fontSize = 14.sp)
-        Spacer(Modifier.height(4.dp))
-        Text(child.currentApp, fontSize = 19.sp, fontWeight = FontWeight.Bold, color = DarkText)
-        Text("Từ ${child.currentAppSince}", color = SoftText, fontSize = 14.sp)
-    }
-    WhiteCard {
-        Text("Top app hôm nay", fontWeight = FontWeight.Bold, fontSize = 17.sp, color = DarkText)
-        Spacer(Modifier.height(10.dp))
-        if (usage.isEmpty()) {
-            Text("Chưa có thống kê. Máy con cập nhật mỗi vài phút.", color = SoftText, fontSize = 14.sp)
-        }
-        usage.sortedByDescending { it.minutesToday }.take(8).forEach {
-            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
-                Text(it.appName, modifier = Modifier.weight(1f), color = DarkText, fontSize = 15.sp)
-                Text("${it.minutesToday} phút · mở ${it.opensToday} lần", color = SoftText, fontSize = 14.sp)
+    SectionCard("Đang dùng") {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            AppAvatar(child.currentApp, 44)
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(child.currentApp, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = DarkText)
+                Text("Từ ${child.currentAppSince}", color = SoftText, fontSize = 13.sp)
             }
         }
     }
+    SectionCard("Top app hôm nay") {
+        if (usage.isEmpty()) {
+            Text("Chưa có thống kê. Máy con cập nhật mỗi vài phút.", color = SoftText, fontSize = 14.sp)
+        }
+        val sorted = usage.sortedByDescending { it.minutesToday }.take(8)
+        val max = (sorted.firstOrNull()?.minutesToday ?: 1).coerceAtLeast(1)
+        sorted.forEach {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+                AppAvatar(it.appName, 36)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Row {
+                        Text(it.appName, modifier = Modifier.weight(1f), color = DarkText, fontSize = 15.sp, maxLines = 1)
+                        Text("${it.minutesToday} phút", color = SoftText, fontSize = 13.sp)
+                    }
+                    LinearProgressIndicator(
+                        progress = { it.minutesToday.toFloat() / max },
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        color = MainBlue, trackColor = Ui.PrimarySoft
+                    )
+                    Text("mở ${it.opensToday} lần", color = SoftText, fontSize = 11.sp)
+                }
+            }
+        }
+    }
+}
+
+/** Vòng tròn thời gian dùng hôm nay so với giới hạn. */
+@Composable
+private fun UsageRing(used: Int, limit: Int) {
+    val frac = if (limit > 0) (used.toFloat() / limit).coerceIn(0f, 1f) else 0f
+    val color = when {
+        frac >= 1f -> Ui.Red
+        frac >= 0.8f -> Color(0xFFE08A00)
+        else -> Ui.Primary
+    }
+    Box(Modifier.size(180.dp), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.fillMaxSize()) {
+            val w = 18.dp.toPx()
+            val inset = w / 2
+            val arcSize = Size(size.width - w, size.height - w)
+            drawArc(Ui.PrimarySoft, -90f, 360f, false, Offset(inset, inset), arcSize, style = Stroke(w, cap = StrokeCap.Round))
+            if (frac > 0f) {
+                drawArc(color, -90f, 360f * frac, false, Offset(inset, inset), arcSize, style = Stroke(w, cap = StrokeCap.Round))
+            }
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("$used", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = DarkText)
+            Text("/ $limit phút", fontSize = 14.sp, color = SoftText)
+        }
+    }
+}
+
+/** Hình tròn có chữ cái đầu, màu theo tên, thay cho biểu tượng app. */
+@Composable
+fun AppAvatar(name: String, size: Int) {
+    val palette = listOf(0xFF1565C0, 0xFF2E7D32, 0xFFEF6C00, 0xFF6A1B9A, 0xFFC62828, 0xFF00838F, 0xFF4E342E)
+    val color = Color(palette[(name.hashCode() and 0x7fffffff) % palette.size])
+    Box(
+        Modifier.size(size.dp).clip(CircleShape).background(color),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            name.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?",
+            color = Color.White, fontWeight = FontWeight.Bold, fontSize = (size * 0.45f).sp
+        )
+    }
+}
+
+@Composable
+fun StatusChip(text: String, bg: Color) {
+    Text(
+        text, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+        modifier = Modifier.clip(RoundedCornerShape(50)).background(bg)
+            .padding(horizontal = 10.dp, vertical = 3.dp)
+    )
 }
 
 // ---- Tab 2 ----
@@ -326,6 +403,8 @@ private fun PerAppTab(
             val out = l.dailyMinutes > 0 && used >= l.dailyMinutes
             Column(Modifier.padding(vertical = 8.dp)) {
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    AppAvatar(l.appName, 36)
+                    Spacer(Modifier.width(10.dp))
                     Text(l.appName, modifier = Modifier.weight(1f), color = DarkText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     Text("$used/${l.dailyMinutes} phút", color = if (out) Red else SoftText, fontSize = 14.sp)
                 }
@@ -444,29 +523,33 @@ private fun LockTab(
 ) {
     val locked = child?.isLocked ?: false
     var confirmUnpair by remember { mutableStateOf(false) }
-    Card(
-        colors = CardDefaults.cardColors(containerColor = if (locked) Color(0xFFFDECEA) else Color(0xFFE8F5E9)),
-        shape = RoundedCornerShape(20.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(Modifier.padding(20.dp)) {
+    SectionCard {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
+                Modifier.size(130.dp).clip(CircleShape)
+                    .background(if (locked) Ui.RedSoft else Ui.GreenSoft),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Filled.Lock, contentDescription = null,
+                    tint = if (locked) Red else Green, modifier = Modifier.size(64.dp)
+                )
+            }
+            Spacer(Modifier.height(10.dp))
             Text(
-                if (locked) "Máy con đang bị khóa." else "Máy con đang mở.",
+                if (locked) "Máy con đang bị khóa" else "Máy con đang mở",
                 fontSize = 19.sp, fontWeight = FontWeight.Bold,
                 color = if (locked) Red else Green
             )
-            Spacer(Modifier.height(6.dp))
-            Text("Lý do khóa sẽ hiện lên máy con.", color = SoftText, fontSize = 14.sp)
+            Text("Lý do khóa hiện trên máy con.", color = SoftText, fontSize = 13.sp)
+            Spacer(Modifier.height(12.dp))
+            PrimaryButton(
+                if (locked) "Mở khóa máy con" else "Khóa máy con ngay",
+                { viewModel.setLocked(!locked, if (!locked) "Bố mẹ khóa máy" else "") },
+                enabled = child != null,
+                color = if (locked) Green else Red
+            )
         }
-    }
-    Button(
-        onClick = { viewModel.setLocked(!locked, if (!locked) "Bố mẹ khóa máy" else "") },
-        enabled = child != null,
-        colors = ButtonDefaults.buttonColors(containerColor = if (locked) Green else Red),
-        shape = RoundedCornerShape(14.dp),
-        modifier = Modifier.fillMaxWidth().height(56.dp)
-    ) {
-        Text(if (locked) "Mở khóa máy con" else "Khóa máy con ngay", fontSize = 17.sp, fontWeight = FontWeight.Bold)
     }
     WhiteCard {
         Text("Cho con thêm giờ hôm nay", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = DarkText)

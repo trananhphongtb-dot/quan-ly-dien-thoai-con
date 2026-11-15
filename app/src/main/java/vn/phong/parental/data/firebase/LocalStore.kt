@@ -41,6 +41,19 @@ class LocalStore(context: Context) {
         get() = prefs.getString("parent_phone", null)
         set(value) = prefs.edit().putString("parent_phone", value).apply()
 
+    // ---- Chẩn đoán máy con (hiện trên màn "Máy đang được bảo vệ") ----
+    var lastLoopAt: Long
+        get() = prefs.getLong("diag_loop_at", 0L)
+        set(value) = prefs.edit().putLong("diag_loop_at", value).apply()
+
+    var lastSyncAt: Long
+        get() = prefs.getLong("diag_sync_at", 0L)
+        set(value) = prefs.edit().putLong("diag_sync_at", value).apply()
+
+    var lastError: String
+        get() = prefs.getString("diag_error", "") ?: ""
+        set(value) = prefs.edit().putString("diag_error", value).apply()
+
     /** Phạm vi khóa hiện tại: "" = không khóa, "ALL" = cả máy, "APP:<package>" = một app. */
     var lockScope: String
         get() = prefs.getString("lock_scope", "") ?: ""

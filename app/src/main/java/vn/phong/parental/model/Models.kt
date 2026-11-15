@@ -25,7 +25,9 @@ data class ChildDevice(
     val bonusMinutes: Int = 0,
     val bonusDate: String = "",
     /** Quyền máy con đang thiếu (rỗng = đủ), để bố mẹ biết con có tắt quyền. */
-    val permMissing: String = ""
+    val permMissing: String = "",
+    /** Lần cuối máy con báo về (ms), 0 nếu chưa có. */
+    val updatedAtMillis: Long = 0L
 )
 
 /** Giới hạn chung — Tab 2. */

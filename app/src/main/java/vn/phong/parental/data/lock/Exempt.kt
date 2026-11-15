@@ -40,4 +40,18 @@ object Exempt {
         }
         return out
     }
+
+    /** Các app gọi điện: khi đang mở thì màn khóa nhường chỗ để con gọi bố mẹ. */
+    fun dialers(context: Context): Set<String> {
+        val set = mutableSetOf(
+            "com.android.dialer", "com.google.android.dialer",
+            "com.android.incallui", "com.samsung.android.dialer",
+            "com.samsung.android.incallui", "com.android.phone",
+            "com.android.server.telecom"
+        )
+        runCatching {
+            context.getSystemService(TelecomManager::class.java)?.defaultDialerPackage?.let { set += it }
+        }
+        return set
+    }
 }

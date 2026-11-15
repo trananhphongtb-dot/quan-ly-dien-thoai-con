@@ -24,6 +24,17 @@ fun RoleSelectionScreen(onRoleSelected: (Role) -> Unit) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Box(
+            Modifier.size(96.dp).clip(RoundedCornerShape(24.dp)).background(Ui.Primary),
+            contentAlignment = Alignment.Center
+        ) {
+            androidx.compose.foundation.Image(
+                painter = androidx.compose.ui.res.painterResource(vn.phong.parental.R.drawable.ic_launcher_foreground),
+                contentDescription = null,
+                modifier = Modifier.size(96.dp)
+            )
+        }
+        Spacer(Modifier.height(16.dp))
         Text("Quản lý điện thoại con", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Ui.Primary, textAlign = TextAlign.Center)
         Spacer(Modifier.height(6.dp))
         Text("Bạn dùng máy này với vai trò nào?", fontSize = 15.sp, color = Ui.Soft, textAlign = TextAlign.Center)

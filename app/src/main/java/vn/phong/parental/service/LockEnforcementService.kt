@@ -16,6 +16,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.withTimeoutOrNull
 import vn.phong.parental.data.firebase.LocalStore
 import vn.phong.parental.data.firebase.RulesRepository
 import vn.phong.parental.data.lock.EnforcementEngine
@@ -51,6 +53,9 @@ class LockEnforcementService : Service() {
     private val rulesRepo = RulesRepository()
     private val listeners = mutableListOf<ListenerRegistration>()
     private var loopJob: Job? = null
+    /** Báo cho vòng kiểm tra chạy ngay (khi luật/lệnh khóa vừa đổi), không đợi 10 giây. */
+    private val kick = Channel<Unit>(Channel.CONFLATED)
+    private var lastHeartbeatAt = 0L
 
     @Volatile private var generalLimit = GeneralLimit()
     @Volatile private var perAppLimits: List<PerAppLimit> = emptyList()
@@ -78,8 +83,9 @@ class LockEnforcementService : Service() {
             return START_NOT_STICKY
         }
         if (loopJob == null) {
-            listeners += rulesRepo.listenGeneralLimit(familyId) { generalLimit = it }
-            listeners += rulesRepo.listenPerAppLimits(familyId) { perAppLimits = it }
+            rulesRepo.errorSink = { store.lastError = it }
+            listeners += rulesRepo.listenGeneralLimit(familyId) { generalLimit = it; kick.trySend(Unit) }
+            listeners += rulesRepo.listenPerAppLimits(familyId) { perAppLimits = it; kick.trySend(Unit) }
             listeners += rulesRepo.listenChild(familyId, childId) { doc ->
                 if (doc == null) {
                     // Bố mẹ đã hủy ghép nối máy này.
@@ -88,6 +94,8 @@ class LockEnforcementService : Service() {
                     stopSelf()
                 } else {
                     child = doc
+                    store.lastSyncAt = System.currentTimeMillis()
+                    kick.trySend(Unit)
                 }
             }
             runCatching {
@@ -97,8 +105,11 @@ class LockEnforcementService : Service() {
             }
             loopJob = scope.launch {
                 while (isActive) {
+                    store.lastLoopAt = System.currentTimeMillis()
                     runCatching { enforceOnce(store, familyId, childId) }
-                    delay(10_000)
+                        .onFailure { store.lastError = "Vòng kiểm tra lỗi: ${it.javaClass.simpleName}: ${it.message}" }
+                    withTimeoutOrNull(10_000) { kick.receive() }
+                    delay(300)
                 }
             }
         }
@@ -160,26 +171,33 @@ class LockEnforcementService : Service() {
         }
         if (block != null) store.lockReason = block.reason
 
-        if (block != null) {
-            // Khi khóa cả máy, chỉ app chính, quay số, hệ thống được qua;
-            // launcher bị chặn. Khi khóa 1 app, block.packageName đã là app đó.
-            val passes = if (block.wholeDevice) {
-                fg != null && fg in (exempt - Exempt.launchers(this))
-            } else false
-            if (!passes) {
-                val intent = Intent(this, LockScreenActivity::class.java).apply {
-                    addFlags(
-                        Intent.FLAG_ACTIVITY_NEW_TASK or
-                            Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                            Intent.FLAG_ACTIVITY_NO_ANIMATION
-                    )
-                    putExtra(LockScreenActivity.EXTRA_REASON, block.reason)
-                }
-                startActivity(intent)
+        // Màn khóa do dịch vụ trợ năng vẽ (không bị Android chặn). Nếu trợ năng chưa
+        // kết nối thì mới thử mở màn khóa bằng activity (có thể bị hệ thống chặn).
+        val acc = ChildAccessibilityService.instance
+        if (acc != null) {
+            acc.refresh(fg)
+        } else if (block != null) {
+            store.lastError = "Dịch vụ Trợ năng chưa chạy, màn khóa có thể không hiện"
+            val intent = Intent(this, LockScreenActivity::class.java).apply {
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_NO_ANIMATION
+                )
+                putExtra(LockScreenActivity.EXTRA_REASON, block.reason)
             }
+            runCatching { startActivity(intent) }
         }
 
         val now = System.currentTimeMillis()
+
+        // Nhịp tim mỗi 60 giây để bố mẹ thấy máy con đang online.
+        if (now - lastHeartbeatAt >= 60_000) {
+            runCatching { rulesRepo.heartbeat(familyId, childId) }
+                .onSuccess { store.lastSyncAt = now }
+                .onFailure { store.lastError = "Không gửi được lên bố mẹ: ${it.message}" }
+            lastHeartbeatAt = now
+        }
 
         // Báo app đang dùng + tổng phút: khi có đổi, tối đa mỗi 30 giây.
         val shownApp = fg?.let { labelOf(it) } ?: "Màn hình tắt"

@@ -176,7 +176,16 @@ fun ChildPermissionScreen(
     }
 }
 
-/** Màn chính của máy con sau khi đã chạy giám sát. */
+/** Một dòng trạng thái: nhãn, giá trị, màu theo tốt/xấu. */
+@Composable
+private fun StatusLine(label: String, value: String, ok: Boolean) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = Ui.Soft, fontSize = 14.sp, modifier = Modifier.weight(1f))
+        Text(value, color = if (ok) Ui.Green else Ui.Red, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+    }
+}
+
+/** Màn chính của máy con sau khi đã chạy giám sát, kèm bảng chẩn đoán. */
 @Composable
 fun ChildActiveScreen(
     phone: String,
@@ -184,11 +193,27 @@ fun ChildActiveScreen(
 ) {
     val context = LocalContext.current
     val tick = rememberResumeTick()
-    val missing = remember(tick) { PermissionState.missingText(context) }
+    val store = remember { vn.phong.parental.data.firebase.LocalStore(context) }
+    var clock by remember { mutableStateOf(System.currentTimeMillis()) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(2000)
+            clock = System.currentTimeMillis()
+        }
+    }
+    val missing = remember(tick, clock) { PermissionState.missingText(context) }
+    val fmt = remember { java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()) }
+    val loopAt = remember(clock) { store.lastLoopAt }
+    val syncAt = remember(clock) { store.lastSyncAt }
+    val scope = remember(clock) { store.lockScope }
+    val err = remember(clock) { store.lastError }
+    val serviceOk = loopAt > 0 && clock - loopAt < 40_000
+    val syncOk = syncAt > 0 && clock - syncAt < 180_000
+    val accOk = PermissionState.accessibility(context) &&
+        vn.phong.parental.service.ChildAccessibilityService.instance != null
+
     ScreenScaffold("Máy đang được bảo vệ", "App chạy nền theo luật bố mẹ đặt") {
-        if (missing.isEmpty()) {
-            Notice("Mọi quyền đã bật. Không cần mở app này khi dùng máy.", NoticeKind.SUCCESS)
-        } else {
+        if (missing.isNotEmpty()) {
             Notice("Đang thiếu quyền: $missing. Bố mẹ cũng thấy cảnh báo này.", NoticeKind.ERROR)
             SectionCard("Bật lại quyền") {
                 if (!PermissionState.accessibility(context)) {
@@ -209,6 +234,37 @@ fun ChildActiveScreen(
                     SecondaryButton("Bật quản trị thiết bị", { openAdminRequest(context) })
                 }
             }
+        }
+        SectionCard("Tình trạng hoạt động", "Nếu khóa không chạy, chụp màn hình này gửi người cài app.") {
+            StatusLine("Dịch vụ chạy nền", if (serviceOk) "Đang chạy" else "Không chạy", serviceOk)
+            StatusLine("Dịch vụ Trợ năng", if (accOk) "Đã kết nối" else "Chưa kết nối", accOk)
+            StatusLine(
+                "Kết nối với bố mẹ",
+                if (syncOk) "Tốt (${fmt.format(java.util.Date(syncAt))})"
+                else if (syncAt > 0) "Mất từ ${fmt.format(java.util.Date(syncAt))}" else "Chưa kết nối",
+                syncOk
+            )
+            StatusLine(
+                "Trạng thái khóa",
+                when {
+                    scope.isEmpty() -> "Không khóa"
+                    scope == "ALL" -> "Khóa cả máy"
+                    else -> "Khóa 1 app"
+                },
+                true
+            )
+            if (err.isNotBlank()) {
+                Notice("Lỗi gần nhất: $err", NoticeKind.ERROR)
+                SecondaryButton("Xóa thông báo lỗi", { store.lastError = "" })
+            }
+            SecondaryButton("Khởi động lại dịch vụ", {
+                runCatching {
+                    androidx.core.content.ContextCompat.startForegroundService(
+                        context,
+                        Intent(context, vn.phong.parental.service.LockEnforcementService::class.java)
+                    )
+                }
+            })
         }
         SectionCard("Số điện thoại bố mẹ", "Dùng cho nút \"Gọi bố mẹ\" trên màn hình khóa.") {
             OutlinedTextField(
