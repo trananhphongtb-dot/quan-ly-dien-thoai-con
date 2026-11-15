@@ -1,66 +1,129 @@
 package vn.phong.parental.ui
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.draw.clip
+import vn.phong.parental.R
 import vn.phong.parental.model.Role
 
 /** Màn đầu tiên khi cài app: chọn vai Bố Mẹ hoặc Con. */
 @Composable
 fun RoleSelectionScreen(onRoleSelected: (Role) -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxSize().background(Ui.Bg).padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Box(
-            Modifier.size(96.dp).clip(RoundedCornerShape(24.dp)).background(Ui.Primary),
-            contentAlignment = Alignment.Center
+    Column(Modifier.fillMaxSize().background(Ui.Bg)) {
+        // Nửa trên: logo + tên app trên nền chuyển màu
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .shadow(10.dp, RoundedCornerShape(bottomStart = 32.dp, bottomEnd = 32.dp), spotColor = Ui.Shadow)
+                .clip(RoundedCornerShape(bottomStart = 32.dp, bottomEnd = 32.dp))
+                .background(Brush.verticalGradient(listOf(Ui.PrimaryLight, Ui.PrimaryDark)))
+                .statusBarsPadding()
+                .padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 26.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            androidx.compose.foundation.Image(
-                painter = androidx.compose.ui.res.painterResource(vn.phong.parental.R.drawable.ic_launcher_foreground),
-                contentDescription = null,
-                modifier = Modifier.size(96.dp)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { LangToggle() }
+            Spacer(Modifier.height(6.dp))
+            Box(
+                Modifier.size(84.dp)
+                    .shadow(12.dp, RoundedCornerShape(24.dp), spotColor = Color.Black)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Color.White),
+                contentAlignment = Alignment.Center
+            ) {
+                Image(painterResource(R.drawable.ic_launcher_foreground), null, Modifier.size(84.dp))
+            }
+            Spacer(Modifier.height(12.dp))
+            Text(
+                Lang.t("Quản lý điện thoại con", "Kids Phone Guard"),
+                fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White, textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                Lang.t("Đặt giờ, theo dõi và khóa máy an toàn", "Set limits, monitor and lock safely"),
+                fontSize = 13.sp, color = Color(0xFFD3E4F9), textAlign = TextAlign.Center
             )
         }
-        Spacer(Modifier.height(16.dp))
-        Text("Quản lý điện thoại con", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Ui.Primary, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(6.dp))
-        Text("Bạn dùng máy này với vai trò nào?", fontSize = 15.sp, color = Ui.Soft, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(28.dp))
-        RoleCard("Tôi là Bố Mẹ", "Đặt luật, theo dõi và khóa máy của con", Ui.Primary, Color.White) { onRoleSelected(Role.PARENT) }
-        Spacer(Modifier.height(12.dp))
-        RoleCard("Tôi là Con", "Nhập mã do bố mẹ đưa để ghép nối", Color.White, Ui.Text) { onRoleSelected(Role.CHILD) }
-        Spacer(Modifier.height(20.dp))
-        Text(
-            "Chọn đúng vai ngay từ đầu. Sau khi ghép nối, máy con không tự đổi sang vai Bố Mẹ được.",
-            fontSize = 13.sp, color = Ui.Soft, textAlign = TextAlign.Center
-        )
+        Column(
+            Modifier.fillMaxWidth().weight(1f).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                Lang.t("Máy này là của ai?", "Whose phone is this?"),
+                fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Ui.Text,
+                modifier = Modifier.padding(top = 6.dp)
+            )
+            RoleCard(
+                Icons.Filled.Person,
+                Lang.t("Tôi là Bố Mẹ", "I'm a Parent"),
+                Lang.t("Đặt luật, theo dõi và khóa máy của con", "Set rules, monitor and lock your child's phone"),
+                Ui.Primary
+            ) { onRoleSelected(Role.PARENT) }
+            RoleCard(
+                Icons.Filled.Phone,
+                Lang.t("Tôi là Con", "I'm the Child"),
+                Lang.t("Nhập mã do bố mẹ đưa để ghép nối", "Enter the code from your parent to pair"),
+                Ui.Green
+            ) { onRoleSelected(Role.CHILD) }
+            Spacer(Modifier.weight(1f))
+            Text(
+                Lang.t(
+                    "Chọn đúng vai ngay từ đầu. Sau khi ghép nối, máy con không tự đổi sang vai Bố Mẹ được.",
+                    "Pick the right role now. After pairing, a child phone cannot switch to Parent."
+                ),
+                fontSize = 12.sp, color = Ui.Soft, textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 }
 
 @Composable
-private fun RoleCard(title: String, sub: String, bg: Color, fg: Color, onClick: () -> Unit) {
-    Column(
-        Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(bg)
+private fun RoleCard(icon: ImageVector, title: String, sub: String, accent: Color, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(18.dp)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .shadow(7.dp, shape, spotColor = Ui.Shadow)
+            .clip(shape)
+            .background(Brush.verticalGradient(listOf(Color.White, Color(0xFFF4F8FE))))
+            .border(1.dp, Color.White, shape)
             .clickable(onClick = onClick)
-            .padding(20.dp)
+            .padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = fg)
-        Spacer(Modifier.height(4.dp))
-        Text(sub, fontSize = 13.sp, color = if (bg == Color.White) Ui.Soft else Color(0xFFCFE0F6))
+        Box(
+            Modifier.size(52.dp)
+                .shadow(6.dp, CircleShape, spotColor = accent)
+                .clip(CircleShape)
+                .background(Brush.verticalGradient(listOf(accent.copy(alpha = 0.75f), accent))),
+            contentAlignment = Alignment.Center
+        ) { Icon(icon, null, tint = Color.White, modifier = Modifier.size(28.dp)) }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Ui.Text)
+            Text(sub, fontSize = 12.sp, color = Ui.Soft)
+        }
     }
 }

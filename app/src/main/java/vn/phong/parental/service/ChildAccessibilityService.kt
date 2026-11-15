@@ -24,6 +24,7 @@ import kotlinx.coroutines.launch
 import vn.phong.parental.data.firebase.LocalStore
 import vn.phong.parental.data.firebase.RulesRepository
 import vn.phong.parental.data.lock.Exempt
+import vn.phong.parental.ui.Lang
 
 /**
  * Trợ năng trên máy con. Đây là nơi hiện màn hình khóa:
@@ -52,6 +53,7 @@ class ChildAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        Lang.init(applicationContext)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -68,6 +70,14 @@ class ChildAccessibilityService : AccessibilityService() {
         main.post {
             if (lastPackage == null && foreground != null && foreground != packageName) lastPackage = foreground
             applyLockState()
+        }
+    }
+
+    /** Hiện thông báo ngắn (Toast) và dòng trạng thái trên màn khóa nếu đang hiện. */
+    fun showMessage(text: String) {
+        main.post {
+            statusView?.text = text
+            runCatching { android.widget.Toast.makeText(applicationContext, text, android.widget.Toast.LENGTH_LONG).show() }
         }
     }
 
@@ -108,7 +118,7 @@ class ChildAccessibilityService : AccessibilityService() {
 
     private fun showOverlay() {
         val store = LocalStore(applicationContext)
-        val reason = store.lockReason.ifBlank { "Máy đang bị khóa" }
+        val reason = store.lockReason.ifBlank { Lang.t("Máy đang bị khóa", "Phone is locked") }
         if (overlay != null) {
             reasonView?.text = reason
             return
@@ -126,7 +136,7 @@ class ChildAccessibilityService : AccessibilityService() {
             gravity = Gravity.CENTER
         })
         root.addView(TextView(this).apply {
-            text = "Máy đang bị khóa"
+            text = Lang.t("Máy đang bị khóa", "Phone is locked")
             setTextColor(Color.WHITE)
             textSize = 26f
             typeface = Typeface.DEFAULT_BOLD
@@ -142,13 +152,13 @@ class ChildAccessibilityService : AccessibilityService() {
         }
         reasonView = reasonText
         root.addView(reasonText)
-        root.addView(roundButton("Gọi bố mẹ", Color.parseColor("#1B8A4B")) { dialParent() })
-        root.addView(roundButton("Đèn pin", Color.parseColor("#2C4A6B")) { toggleTorch() })
-        root.addView(roundButton("SOS - báo khẩn cho bố mẹ", Color.parseColor("#B3261E")) {
-            send("SOS khẩn cấp từ máy con", true)
+        root.addView(roundButton(Lang.t("Gọi bố mẹ", "Call parent"), Color.parseColor("#1B8A4B")) { dialParent() })
+        root.addView(roundButton(Lang.t("Đèn pin", "Flashlight"), Color.parseColor("#2C4A6B")) { toggleTorch() })
+        root.addView(roundButton(Lang.t("SOS - báo khẩn cho bố mẹ", "SOS - alert your parent"), Color.parseColor("#B3261E")) {
+            send(Lang.t("SOS khẩn cấp từ máy con", "SOS emergency from child's phone"), true)
         })
-        root.addView(roundButton("Xin mở khóa / xin thêm giờ", Color.parseColor("#2C4A6B")) {
-            send("Con xin mở khóa / xin thêm giờ", false)
+        root.addView(roundButton(Lang.t("Xin mở khóa / xin thêm giờ", "Ask to unlock / more time"), Color.parseColor("#2C4A6B")) {
+            send(Lang.t("Con xin mở khóa / xin thêm giờ", "Child asks to unlock / more time"), false)
         })
         val status = TextView(this).apply {
             setTextColor(Color.parseColor("#FFD54F"))
@@ -193,7 +203,7 @@ class ChildAccessibilityService : AccessibilityService() {
         }
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         runCatching { startActivity(intent) }.onFailure {
-            statusView?.text = "Không mở được trình quay số"
+            statusView?.text = Lang.t("Không mở được trình quay số", "Cannot open the dialer")
         }
     }
 
@@ -209,17 +219,17 @@ class ChildAccessibilityService : AccessibilityService() {
         val familyId = store.familyId
         val childId = store.childId
         if (familyId == null || childId == null) {
-            statusView?.text = "Chưa ghép nối, không gửi được"
+            statusView?.text = Lang.t("Chưa ghép nối, không gửi được", "Not paired, cannot send")
             return
         }
-        statusView?.text = "Đang gửi cho bố mẹ..."
+        statusView?.text = Lang.t("Đang gửi cho bố mẹ...", "Sending to your parent...")
         CoroutineScope(Dispatchers.IO).launch {
             val result = runCatching { RulesRepository().requestUnlock(familyId, childId, message, sos) }
             main.post {
                 statusView?.text = if (result.isSuccess) {
-                    "Đã gửi cho bố mẹ, chờ bố mẹ trả lời"
+                    Lang.t("Đã gửi cho bố mẹ, chờ bố mẹ trả lời", "Sent. Waiting for your parent to reply")
                 } else {
-                    "Gửi lỗi: ${result.exceptionOrNull()?.message ?: "kiểm tra mạng"}"
+                    Lang.t("Gửi lỗi: ${result.exceptionOrNull()?.message ?: "kiểm tra mạng"}", "Send failed: ${result.exceptionOrNull()?.message ?: "check internet"}")
                 }
             }
         }

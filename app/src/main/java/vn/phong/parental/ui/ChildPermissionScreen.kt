@@ -64,13 +64,13 @@ private fun PermissionRow(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(title, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Ui.Text, modifier = Modifier.weight(1f))
             Text(
-                if (granted) "Đã bật" else if (required) "Cần bật" else "Nên bật",
+                if (granted) Lang.t("Đã bật", "On") else if (required) Lang.t("Cần bật", "Required") else Lang.t("Nên bật", "Recommended"),
                 color = if (granted) Ui.Green else if (required) Ui.Red else Ui.Amber,
                 fontWeight = FontWeight.Bold, fontSize = 13.sp
             )
         }
         Text(why, color = Ui.Soft, fontSize = 13.sp)
-        if (!granted) PrimaryButton("Mở cài đặt để bật", onGrant)
+        if (!granted) PrimaryButton(Lang.t("Mở cài đặt để bật", "Open settings"), onGrant)
     }
 }
 
@@ -98,7 +98,7 @@ fun openAdminRequest(context: Context) {
         )
         putExtra(
             DevicePolicyManager.EXTRA_ADD_EXPLANATION,
-            "Giúp app khó bị gỡ khi chưa có sự đồng ý của bố mẹ."
+            Lang.t("Giúp app khó bị gỡ khi chưa có sự đồng ý của bố mẹ.", "Makes the app harder to remove without a parent.")
         )
     }
     context.startActivity(intent)
@@ -128,48 +128,51 @@ fun ChildPermissionScreen(
     val phoneOk = phone.filter { it.isDigit() }.length >= 8
     val ready = usage && overlay && access && phoneOk
 
-    ScreenScaffold("Cấp quyền cho máy con", "Bố mẹ đã duyệt. Bật các quyền dưới đây.") {
-        PermissionRow("Truy cập dữ liệu sử dụng", "Để đo máy đang dùng app nào và bao lâu.", usage, true) {
+    ScreenScaffold(Lang.t("Cấp quyền cho máy con", "Grant permissions"), Lang.t("Bố mẹ đã duyệt. Bật các quyền dưới đây.", "Approved. Turn on the permissions below.")) {
+        PermissionRow(Lang.t("Truy cập dữ liệu sử dụng", "Usage access"), Lang.t("Để đo máy đang dùng app nào và bao lâu.", "To measure which app is used and for how long."), usage, true) {
             openSetting(context, Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
         }
-        PermissionRow("Hiển thị trên ứng dụng khác", "Để màn hình khóa hiện lên trên app đang mở.", overlay, true) {
+        PermissionRow(Lang.t("Hiển thị trên ứng dụng khác", "Display over other apps"), Lang.t("Để màn hình khóa hiện lên trên app đang mở.", "So the lock screen can appear over the open app."), overlay, true) {
             openSetting(
                 context,
                 Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
             )
         }
         PermissionRow(
-            "Trợ năng",
-            "Để bật lại màn hình khóa nếu con bấm Home hoặc đổi app. App không đọc nội dung màn hình.",
+            Lang.t("Trợ năng", "Accessibility"),
+            Lang.t(
+                "Để vẽ màn hình khóa và giữ khóa khi đổi app. App không đọc nội dung màn hình.",
+                "Draws the lock screen and keeps it on when switching apps. The app does not read screen content."
+            ),
             access, true
         ) { openSetting(context, Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-        PermissionRow("Quản trị thiết bị", "Để khó gỡ app khi chưa có bố mẹ đồng ý.", admin, false) {
+        PermissionRow(Lang.t("Quản trị thiết bị", "Device admin"), Lang.t("Để khó gỡ app khi chưa có bố mẹ đồng ý.", "Makes the app hard to uninstall without a parent."), admin, false) {
             openAdminRequest(context)
         }
-        PermissionRow("Không bị tối ưu pin", "Để app không bị hệ thống tắt khi chạy nền.", battery, false) {
+        PermissionRow(Lang.t("Không bị tối ưu pin", "No battery optimization"), Lang.t("Để app không bị hệ thống tắt khi chạy nền.", "So the system does not kill the app in the background."), battery, false) {
             openSetting(
                 context,
                 Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${context.packageName}"))
             )
         }
         if (Build.VERSION.SDK_INT >= 33) {
-            PermissionRow("Thông báo", "Để thấy thông báo app đang chạy.", notif, false) {
+            PermissionRow(Lang.t("Thông báo", "Notifications"), Lang.t("Để thấy thông báo app đang chạy và phản hồi của bố mẹ.", "To see the running notice and your parent's replies."), notif, false) {
                 notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
-        SectionCard("Số điện thoại bố mẹ", "Nút \"Gọi bố mẹ\" trên màn hình khóa sẽ quay số này.") {
+        SectionCard(Lang.t("Số điện thoại bố mẹ", "Parent phone number"), Lang.t("Nút \"Gọi bố mẹ\" trên màn hình khóa sẽ quay số này.", "The \"Call parent\" button on the lock screen dials this number.")) {
             OutlinedTextField(
                 value = phone,
                 onValueChange = { onPhoneChange(it.filter { c -> c.isDigit() || c == '+' }.take(15)) },
-                label = { Text("Số điện thoại") }, singleLine = true,
+                label = { Text(Lang.t("Số điện thoại", "Phone number")) }, singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                 modifier = Modifier.fillMaxWidth()
             )
         }
-        PrimaryButton("Hoàn tất, bắt đầu bảo vệ", onDone, enabled = ready, color = Ui.Green)
+        PrimaryButton(Lang.t("Hoàn tất, bắt đầu bảo vệ", "Finish and start protection"), onDone, enabled = ready, color = Ui.Green)
         if (!ready) {
             Text(
-                "Cần bật 3 quyền bắt buộc và nhập số điện thoại bố mẹ mới hoàn tất được.",
+                Lang.t("Cần bật 3 quyền bắt buộc và nhập số điện thoại bố mẹ mới hoàn tất được.", "Turn on the 3 required permissions and enter the parent phone number to finish."),
                 color = Ui.Soft, fontSize = 13.sp
             )
         }
@@ -212,18 +215,18 @@ fun ChildActiveScreen(
     val accOk = PermissionState.accessibility(context) &&
         vn.phong.parental.service.ChildAccessibilityService.instance != null
 
-    ScreenScaffold("Máy đang được bảo vệ", "App chạy nền theo luật bố mẹ đặt") {
+    ScreenScaffold(Lang.t("Máy đang được bảo vệ", "Phone is protected"), Lang.t("App chạy nền theo luật bố mẹ đặt", "Runs in the background by your parent's rules")) {
         if (missing.isNotEmpty()) {
-            Notice("Đang thiếu quyền: $missing. Bố mẹ cũng thấy cảnh báo này.", NoticeKind.ERROR)
-            SectionCard("Bật lại quyền") {
+            Notice(Lang.t("Đang thiếu quyền: $missing. Bố mẹ cũng thấy cảnh báo này.", "Missing permissions: $missing. Your parent sees this warning too."), NoticeKind.ERROR)
+            SectionCard(Lang.t("Bật lại quyền", "Turn permissions back on")) {
                 if (!PermissionState.accessibility(context)) {
-                    SecondaryButton("Mở cài đặt trợ năng", { openSetting(context, Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) })
+                    SecondaryButton(Lang.t("Mở cài đặt trợ năng", "Open accessibility settings"), { openSetting(context, Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) })
                 }
                 if (!PermissionState.usage(context)) {
-                    SecondaryButton("Mở cài đặt truy cập sử dụng", { openSetting(context, Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) })
+                    SecondaryButton(Lang.t("Mở cài đặt truy cập sử dụng", "Open usage access settings"), { openSetting(context, Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) })
                 }
                 if (!PermissionState.overlay(context)) {
-                    SecondaryButton("Mở cài đặt hiển thị trên app khác", {
+                    SecondaryButton(Lang.t("Mở cài đặt hiển thị trên app khác", "Open display-over-apps settings"), {
                         openSetting(
                             context,
                             Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
@@ -231,33 +234,33 @@ fun ChildActiveScreen(
                     })
                 }
                 if (!PermissionState.admin(context)) {
-                    SecondaryButton("Bật quản trị thiết bị", { openAdminRequest(context) })
+                    SecondaryButton(Lang.t("Bật quản trị thiết bị", "Enable device admin"), { openAdminRequest(context) })
                 }
             }
         }
-        SectionCard("Tình trạng hoạt động", "Nếu khóa không chạy, chụp màn hình này gửi người cài app.") {
-            StatusLine("Dịch vụ chạy nền", if (serviceOk) "Đang chạy" else "Không chạy", serviceOk)
-            StatusLine("Dịch vụ Trợ năng", if (accOk) "Đã kết nối" else "Chưa kết nối", accOk)
+        SectionCard(Lang.t("Tình trạng hoạt động", "Status"), Lang.t("Nếu khóa không chạy, chụp màn hình này gửi người cài app.", "If locking fails, screenshot this and send it to the app installer.")) {
+            StatusLine(Lang.t("Dịch vụ chạy nền", "Background service"), if (serviceOk) Lang.t("Đang chạy", "Running") else Lang.t("Không chạy", "Not running"), serviceOk)
+            StatusLine(Lang.t("Dịch vụ Trợ năng", "Accessibility service"), if (accOk) Lang.t("Đã kết nối", "Connected") else Lang.t("Chưa kết nối", "Not connected"), accOk)
             StatusLine(
-                "Kết nối với bố mẹ",
-                if (syncOk) "Tốt (${fmt.format(java.util.Date(syncAt))})"
-                else if (syncAt > 0) "Mất từ ${fmt.format(java.util.Date(syncAt))}" else "Chưa kết nối",
+                Lang.t("Kết nối với bố mẹ", "Link to parent"),
+                if (syncOk) Lang.t("Tốt (${fmt.format(java.util.Date(syncAt))})", "OK (${fmt.format(java.util.Date(syncAt))})")
+                else if (syncAt > 0) Lang.t("Mất từ ${fmt.format(java.util.Date(syncAt))}", "Lost since ${fmt.format(java.util.Date(syncAt))}") else Lang.t("Chưa kết nối", "Not connected"),
                 syncOk
             )
             StatusLine(
-                "Trạng thái khóa",
+                Lang.t("Trạng thái khóa", "Lock state"),
                 when {
-                    scope.isEmpty() -> "Không khóa"
-                    scope == "ALL" -> "Khóa cả máy"
-                    else -> "Khóa 1 app"
+                    scope.isEmpty() -> Lang.t("Không khóa", "Unlocked")
+                    scope == "ALL" -> Lang.t("Khóa cả máy", "Whole phone locked")
+                    else -> Lang.t("Khóa 1 app", "One app locked")
                 },
                 true
             )
             if (err.isNotBlank()) {
-                Notice("Lỗi gần nhất: $err", NoticeKind.ERROR)
-                SecondaryButton("Xóa thông báo lỗi", { store.lastError = "" })
+                Notice(Lang.t("Lỗi gần nhất: $err", "Latest error: $err"), NoticeKind.ERROR)
+                SecondaryButton(Lang.t("Xóa thông báo lỗi", "Clear error"), { store.lastError = "" })
             }
-            SecondaryButton("Khởi động lại dịch vụ", {
+            SecondaryButton(Lang.t("Khởi động lại dịch vụ", "Restart service"), {
                 runCatching {
                     androidx.core.content.ContextCompat.startForegroundService(
                         context,
@@ -266,7 +269,7 @@ fun ChildActiveScreen(
                 }
             })
         }
-        SectionCard("Số điện thoại bố mẹ", "Dùng cho nút \"Gọi bố mẹ\" trên màn hình khóa.") {
+        SectionCard(Lang.t("Số điện thoại bố mẹ", "Parent phone number"), Lang.t("Dùng cho nút \"Gọi bố mẹ\" trên màn hình khóa.", "Used by the \"Call parent\" button on the lock screen.")) {
             OutlinedTextField(
                 value = phone,
                 onValueChange = { onPhoneChange(it.filter { c -> c.isDigit() || c == '+' }.take(15)) },

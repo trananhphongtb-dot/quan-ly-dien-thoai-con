@@ -2,84 +2,58 @@ package vn.phong.parental.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import vn.phong.parental.model.AppUsageStat
 import vn.phong.parental.model.ChildDevice
 import vn.phong.parental.model.GeneralLimit
+import vn.phong.parental.model.InstalledApp
 import vn.phong.parental.model.PerAppLimit
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private val BgBlue = Ui.Bg
-private val MainBlue = Ui.Primary
-private val DarkText = Ui.Text
-private val SoftText = Ui.Soft
-private val Green = Ui.Green
-private val Red = Ui.Red
 private val TimeRegex = Regex("^([01]\\d|2[0-3]):[0-5]\\d$")
 
 /**
  * App bên bố mẹ, 4 tab:
- * 1. Theo dõi & Thống kê — 2. Giới hạn chung — 3. Giới hạn từng app — 4. Khóa máy.
+ * 1. Theo dõi — 2. Giới hạn chung — 3. Từng app — 4. Khóa máy.
  * Mọi số liệu lấy từ máy con thật qua Firestore, tab 2 và 3 sửa được.
  */
 @Composable
@@ -95,88 +69,80 @@ fun ParentHomeScreen(
     val installed by viewModel.installedApps.collectAsState()
     val error by viewModel.error.collectAsState()
     var tab by remember { mutableIntStateOf(0) }
-    val titles = listOf("Theo dõi", "Giới hạn", "Từng app", "Khóa máy")
-    val icons = listOf(Icons.Filled.Home, Icons.Filled.Settings, Icons.AutoMirrored.Filled.List, Icons.Filled.Lock)
-
-    Column(modifier = Modifier.fillMaxSize().background(BgBlue)) {
-        val now = System.currentTimeMillis()
-        val online = child != null && child!!.updatedAtMillis > 0 && now - child!!.updatedAtMillis < 150_000
-        Row(
-            Modifier.fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(Ui.PrimaryDark, Ui.Primary)))
-                .statusBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            AppAvatar(child?.name?.ifBlank { "Con" } ?: "Con", 48)
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    child?.name?.ifBlank { "Máy của con" } ?: "Máy của con",
-                    color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold
-                )
-                Spacer(Modifier.height(4.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    StatusChip(
-                        if (child == null) "Đang tải" else if (online) "Online" else "Mất kết nối",
-                        if (online) Ui.Green else Ui.Amber
-                    )
-                    if (child?.isLocked == true) StatusChip("Đang khóa", Ui.Red)
-                }
-            }
+    var clock by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(15_000)
+            clock = System.currentTimeMillis()
         }
+    }
+    val tabs = listOf(
+        TabItem(Lang.t("Theo dõi", "Monitor"), Icons.Filled.Home),
+        TabItem(Lang.t("Giới hạn", "Limits"), Icons.Filled.Settings),
+        TabItem(Lang.t("Từng app", "Apps"), Icons.AutoMirrored.Filled.List),
+        TabItem(Lang.t("Khóa máy", "Lock"), Icons.Filled.Lock)
+    )
+
+    Column(Modifier.fillMaxSize().background(Ui.Bg)) {
+        val c = child
+        val online = c != null && c.updatedAtMillis > 0 && clock - c.updatedAtMillis < 150_000
+        AppHeader(
+            title = c?.name?.ifBlank { null } ?: Lang.t("Máy của con", "Child's phone"),
+            subtitle = when {
+                c == null -> Lang.t("Đang tải...", "Loading...")
+                online -> Lang.t("Đang online", "Online")
+                else -> Lang.t("Mất kết nối", "Offline")
+            },
+            leading = { AppAvatar(c?.name?.ifBlank { null } ?: "C", 40) },
+            trailing = {
+                if (c?.isLocked == true) StatusChip(Lang.t("Đang khóa", "Locked"), Ui.Red)
+                else if (c != null && c.unlockUntilMillis > clock) StatusChip(Lang.t("Mở tạm", "Pass"), Ui.Green)
+            }
+        )
         Column(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
+                .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             error?.let {
-                Notice("Lỗi: $it", NoticeKind.ERROR) {
-                    TextButton(onClick = { viewModel.clearError() }) { Text("Đóng") }
+                Notice(Lang.t("Lỗi: $it", "Error: $it"), NoticeKind.ERROR) {
+                    TextButton(onClick = { viewModel.clearError() }) { Text(Lang.t("Đóng", "Close")) }
                 }
             }
-            val c = child
             when (tab) {
-                0 -> TrackTab(c, general, usage, viewModel)
+                0 -> TrackTab(c, general, usage, viewModel, clock)
                 1 -> GeneralTab(general) { viewModel.saveGeneralLimit(it) }
                 2 -> PerAppTab(perApp, usage, installed, viewModel)
                 3 -> LockTab(c, viewModel, onSignedOut, onUnpaired)
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(4.dp))
         }
-        NavigationBar(containerColor = Color.White) {
-            titles.forEachIndexed { index, title ->
-                NavigationBarItem(
-                    selected = tab == index,
-                    onClick = { tab = index },
-                    icon = { Icon(icons[index], contentDescription = title) },
-                    label = { Text(title, fontSize = 11.sp) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = Color.White,
-                        selectedTextColor = MainBlue,
-                        indicatorColor = MainBlue
-                    )
-                )
-            }
-        }
+        AppTabBar(tabs, tab) { tab = it }
     }
 }
 
-// ---- Tab 1 ----
+// ---- Tab 1: Theo dõi ----
 
 @Composable
 private fun TrackTab(
     child: ChildDevice?,
     general: GeneralLimit,
-    usage: List<vn.phong.parental.model.AppUsageStat>,
-    viewModel: ParentalViewModel
+    usage: List<AppUsageStat>,
+    viewModel: ParentalViewModel,
+    clock: Long
 ) {
     if (child == null) {
-        SectionCard("Chưa có dữ liệu từ máy con") {
-            Text("Mở app trên máy con và chờ vài giây. Nếu mãi không có, kiểm tra mạng của máy con.", color = SoftText, fontSize = 14.sp)
+        SectionCard(Lang.t("Chưa có dữ liệu từ máy con", "No data from the child's phone yet")) {
+            Text(
+                Lang.t(
+                    "Mở app trên máy con và chờ vài giây. Nếu mãi không có, kiểm tra mạng của máy con.",
+                    "Open the app on the child's phone and wait a few seconds. If nothing shows, check its internet."
+                ),
+                color = Ui.Soft, fontSize = 13.sp
+            )
         }
         return
     }
@@ -184,73 +150,92 @@ private fun TrackTab(
     val bonus = if (child.bonusDate == today) child.bonusMinutes else 0
     val limit = general.dailyTotalMinutes + bonus
     if (child.permMissing.isNotBlank()) {
-        Notice("Máy con đang thiếu quyền: ${child.permMissing}. Nhờ con bật lại, nếu không app có thể không khóa được.", NoticeKind.ERROR)
+        Notice(
+            Lang.t(
+                "Máy con đang thiếu quyền: ${child.permMissing}. Nhờ con bật lại, nếu không app có thể không khóa được.",
+                "The child's phone lacks permissions: ${child.permMissing}. Ask them to turn them on, or locking may fail."
+            ),
+            NoticeKind.ERROR
+        )
     }
     if (child.unlockRequest.isNotBlank()) {
-        SectionCard("Con đang xin") {
-            Text(child.unlockRequest, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = DarkText)
+        SectionCard(Lang.t("Con đang xin", "Your child is asking")) {
+            Text(child.unlockRequest, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Ui.Text)
             if (child.unlockRequestAtMillis > 0) {
                 Text(
-                    "Lúc " + SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(child.unlockRequestAtMillis)),
-                    color = SoftText, fontSize = 13.sp
+                    Lang.t("Lúc ", "At ") + SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(child.unlockRequestAtMillis)),
+                    color = Ui.Soft, fontSize = 12.sp
                 )
             }
+            Text(
+                Lang.t("Đồng ý sẽ mở khóa tạm, bỏ qua giờ ngủ, giờ học và giới hạn app:", "Approving gives a temporary pass over bedtime, study time and app limits:"),
+                color = Ui.Soft, fontSize = 12.sp
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PrimaryButton("Cho +15 phút", { viewModel.grantBonus(15) }, Modifier.weight(1f), color = Green)
-                PrimaryButton("Cho +30 phút", { viewModel.grantBonus(30) }, Modifier.weight(1f), color = Green)
+                PrimaryButton(Lang.t("15 phút", "15 min"), { viewModel.grantPass(15) }, Modifier.weight(1f), color = Ui.Green)
+                PrimaryButton(Lang.t("30 phút", "30 min"), { viewModel.grantPass(30) }, Modifier.weight(1f), color = Ui.Green)
+                PrimaryButton(Lang.t("1 giờ", "1 hour"), { viewModel.grantPass(60) }, Modifier.weight(1f), color = Ui.Green)
             }
-            TextButton(onClick = { viewModel.dismissUnlockRequest() }) { Text("Bỏ qua lời xin") }
+            SecondaryButton(Lang.t("Từ chối", "Decline"), { viewModel.denyRequest() }, color = Ui.Red)
+        }
+    }
+    if (child.unlockUntilMillis > clock) {
+        val left = ((child.unlockUntilMillis - clock) / 60_000L + 1).toInt()
+        Notice(Lang.t("Đang mở khóa tạm, còn khoảng $left phút.", "Temporary pass active, about $left min left."), NoticeKind.SUCCESS) {
+            TextButton(onClick = { viewModel.setLocked(true, Lang.t("Bố mẹ khóa máy", "Locked by parent")) }) {
+                Text(Lang.t("Khóa lại", "Lock now"), color = Ui.Red)
+            }
         }
     }
     SectionCard {
-        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-            UsageRing(child.todayTotalMinutes, limit)
-            Spacer(Modifier.height(8.dp))
-            val left = (limit - child.todayTotalMinutes).coerceAtLeast(0)
-            Text(
-                if (child.todayTotalMinutes >= limit) "Đã hết giờ dùng hôm nay"
-                else "Còn ${left / 60} giờ ${left % 60} phút",
-                fontWeight = FontWeight.Bold, fontSize = 16.sp,
-                color = if (child.todayTotalMinutes >= limit) Red else DarkText
-            )
-            if (bonus > 0) Text("Đã cho thêm $bonus phút hôm nay", color = SoftText, fontSize = 13.sp)
-        }
-    }
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-        StatCard("Mở máy", child.firstUnlockToday, Modifier.weight(1f))
-        StatCard("Đóng máy", child.lastLockToday, Modifier.weight(1f))
-    }
-    SectionCard("Đang dùng") {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            AppAvatar(child.currentApp, 44)
-            Spacer(Modifier.width(12.dp))
-            Column {
-                Text(child.currentApp, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = DarkText)
-                Text("Từ ${child.currentAppSince}", color = SoftText, fontSize = 13.sp)
+            UsageRing(child.todayTotalMinutes, limit, 130)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(Lang.t("Hôm nay", "Today"), fontSize = 12.sp, color = Ui.Soft)
+                val left = (limit - child.todayTotalMinutes).coerceAtLeast(0)
+                Text(
+                    if (child.todayTotalMinutes >= limit) Lang.t("Đã hết giờ", "Time is up")
+                    else Lang.t("Còn ${left / 60}g ${left % 60}p", "${left / 60}h ${left % 60}m left"),
+                    fontWeight = FontWeight.Bold, fontSize = 18.sp,
+                    color = if (child.todayTotalMinutes >= limit) Ui.Red else Ui.Text
+                )
+                if (bonus > 0) Text(Lang.t("Đã cho thêm $bonus phút", "$bonus extra min granted"), color = Ui.Soft, fontSize = 12.sp)
+                Text(Lang.t("Mở máy ${child.firstUnlockToday}", "Unlocked ${child.firstUnlockToday}"), color = Ui.Soft, fontSize = 12.sp)
+                Text(Lang.t("Đóng máy ${child.lastLockToday}", "Locked ${child.lastLockToday}"), color = Ui.Soft, fontSize = 12.sp)
             }
         }
     }
-    SectionCard("Top app hôm nay") {
+    SectionCard(Lang.t("Đang dùng", "Using now")) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            AppAvatar(child.currentApp, 40)
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(child.currentApp, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ui.Text)
+                Text(Lang.t("Từ ${child.currentAppSince}", "Since ${child.currentAppSince}"), color = Ui.Soft, fontSize = 12.sp)
+            }
+        }
+    }
+    SectionCard(Lang.t("Top app hôm nay", "Top apps today")) {
         if (usage.isEmpty()) {
-            Text("Chưa có thống kê. Máy con cập nhật mỗi vài phút.", color = SoftText, fontSize = 14.sp)
+            Text(Lang.t("Chưa có thống kê. Máy con cập nhật mỗi vài phút.", "No stats yet. The child's phone updates every few minutes."), color = Ui.Soft, fontSize = 13.sp)
         }
         val sorted = usage.sortedByDescending { it.minutesToday }.take(8)
         val max = (sorted.firstOrNull()?.minutesToday ?: 1).coerceAtLeast(1)
         sorted.forEach {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
-                AppAvatar(it.appName, 36)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 3.dp)) {
+                AppAvatar(it.appName, 34)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Row {
-                        Text(it.appName, modifier = Modifier.weight(1f), color = DarkText, fontSize = 15.sp, maxLines = 1)
-                        Text("${it.minutesToday} phút", color = SoftText, fontSize = 13.sp)
+                        Text(it.appName, modifier = Modifier.weight(1f), color = Ui.Text, fontSize = 14.sp, maxLines = 1)
+                        Text(Lang.t("${it.minutesToday} phút", "${it.minutesToday} min"), color = Ui.Soft, fontSize = 12.sp)
                     }
                     LinearProgressIndicator(
                         progress = { it.minutesToday.toFloat() / max },
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                        color = MainBlue, trackColor = Ui.PrimarySoft
+                        modifier = Modifier.fillMaxWidth().padding(top = 3.dp).height(5.dp).clip(RoundedCornerShape(50)),
+                        color = Ui.Primary, trackColor = Ui.PrimarySoft
                     )
-                    Text("mở ${it.opensToday} lần", color = SoftText, fontSize = 11.sp)
                 }
             }
         }
@@ -259,26 +244,26 @@ private fun TrackTab(
 
 /** Vòng tròn thời gian dùng hôm nay so với giới hạn. */
 @Composable
-private fun UsageRing(used: Int, limit: Int) {
+private fun UsageRing(used: Int, limit: Int, size: Int) {
     val frac = if (limit > 0) (used.toFloat() / limit).coerceIn(0f, 1f) else 0f
     val color = when {
         frac >= 1f -> Ui.Red
         frac >= 0.8f -> Color(0xFFE08A00)
         else -> Ui.Primary
     }
-    Box(Modifier.size(180.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(size.dp), contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
-            val w = 18.dp.toPx()
+            val w = (size * 0.11f).dp.toPx()
             val inset = w / 2
-            val arcSize = Size(size.width - w, size.height - w)
+            val arcSize = Size(this.size.width - w, this.size.height - w)
             drawArc(Ui.PrimarySoft, -90f, 360f, false, Offset(inset, inset), arcSize, style = Stroke(w, cap = StrokeCap.Round))
             if (frac > 0f) {
                 drawArc(color, -90f, 360f * frac, false, Offset(inset, inset), arcSize, style = Stroke(w, cap = StrokeCap.Round))
             }
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("$used", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = DarkText)
-            Text("/ $limit phút", fontSize = 14.sp, color = SoftText)
+            Text("$used", fontSize = (size * 0.26f).sp, fontWeight = FontWeight.Bold, color = Ui.Text)
+            Text("/ $limit", fontSize = 11.sp, color = Ui.Soft)
         }
     }
 }
@@ -289,7 +274,11 @@ fun AppAvatar(name: String, size: Int) {
     val palette = listOf(0xFF1565C0, 0xFF2E7D32, 0xFFEF6C00, 0xFF6A1B9A, 0xFFC62828, 0xFF00838F, 0xFF4E342E)
     val color = Color(palette[(name.hashCode() and 0x7fffffff) % palette.size])
     Box(
-        Modifier.size(size.dp).clip(CircleShape).background(color),
+        Modifier
+            .size(size.dp)
+            .shadow(4.dp, CircleShape, spotColor = color)
+            .clip(CircleShape)
+            .background(Brush.verticalGradient(listOf(color.copy(alpha = 0.78f), color))),
         contentAlignment = Alignment.Center
     ) {
         Text(
@@ -303,12 +292,30 @@ fun AppAvatar(name: String, size: Int) {
 fun StatusChip(text: String, bg: Color) {
     Text(
         text, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
-        modifier = Modifier.clip(RoundedCornerShape(50)).background(bg)
+        modifier = Modifier
+            .shadow(3.dp, RoundedCornerShape(50), spotColor = bg)
+            .clip(RoundedCornerShape(50)).background(bg)
             .padding(horizontal = 10.dp, vertical = 3.dp)
     )
 }
 
-// ---- Tab 2 ----
+/** Nút nhỏ − / + nổi 3D để chỉnh số. */
+@Composable
+private fun StepButton(text: String, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(12.dp)
+    Box(
+        Modifier
+            .shadow(4.dp, shape, spotColor = Ui.Shadow)
+            .clip(shape)
+            .background(Brush.verticalGradient(listOf(Color.White, Color(0xFFEAF1FB))))
+            .border(1.dp, Ui.Line, shape)
+            .clickable(onClick = onClick)
+            .size(width = 58.dp, height = 40.dp),
+        contentAlignment = Alignment.Center
+    ) { Text(text, fontWeight = FontWeight.Bold, color = Ui.Primary, fontSize = 15.sp) }
+}
+
+// ---- Tab 2: Giới hạn chung ----
 
 @Composable
 private fun GeneralTab(saved: GeneralLimit, onSave: (GeneralLimit) -> Unit) {
@@ -321,42 +328,33 @@ private fun GeneralTab(saved: GeneralLimit, onSave: (GeneralLimit) -> Unit) {
     val draft = GeneralLimit(minutes, bedStart, bedEnd, studyStart, studyEnd)
     val changed = draft != saved
 
-    WhiteCard {
-        Text("Tổng giờ mỗi ngày", fontWeight = FontWeight.Bold, fontSize = 17.sp, color = DarkText)
-        Spacer(Modifier.height(8.dp))
+    SectionCard(Lang.t("Tổng giờ mỗi ngày", "Daily total time")) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedButton(onClick = { minutes = (minutes - 15).coerceAtLeast(15) }) { Text("−15") }
-            Text(
-                "$minutes phút",
-                fontWeight = FontWeight.Bold, fontSize = 20.sp, color = MainBlue,
-                modifier = Modifier.weight(1f),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-            )
-            OutlinedButton(onClick = { minutes = (minutes + 15).coerceAtMost(720) }) { Text("+15") }
+            StepButton("−15") { minutes = (minutes - 15).coerceAtLeast(15) }
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(Lang.t("$minutes phút", "$minutes min"), fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Ui.Primary)
+                Text(Lang.t("= ${minutes / 60} giờ ${minutes % 60} phút", "= ${minutes / 60} h ${minutes % 60} min"), color = Ui.Soft, fontSize = 12.sp)
+            }
+            StepButton("+15") { minutes = (minutes + 15).coerceAtMost(720) }
         }
-        Text("= ${minutes / 60} giờ ${minutes % 60} phút", color = SoftText, fontSize = 13.sp)
     }
-    WhiteCard {
-        Text("Giờ ngủ khóa máy", fontWeight = FontWeight.Bold, fontSize = 17.sp, color = DarkText)
-        Spacer(Modifier.height(8.dp))
+    SectionCard(Lang.t("Giờ ngủ khóa máy", "Bedtime lock")) {
         TimeRow(bedStart, bedEnd, { bedStart = it }, { bedEnd = it })
     }
-    WhiteCard {
-        Text("Giờ học (chỉ mở app học)", fontWeight = FontWeight.Bold, fontSize = 17.sp, color = DarkText)
-        Spacer(Modifier.height(8.dp))
+    SectionCard(Lang.t("Giờ học (chỉ mở app học)", "Study time (study apps only)")) {
         TimeRow(studyStart, studyEnd, { studyStart = it }, { studyEnd = it })
     }
-    if (!valid) Text("Giờ phải đúng dạng HH:mm, ví dụ 21:30.", color = Red, fontSize = 13.sp)
-    Button(
-        onClick = { onSave(draft) },
-        enabled = valid && changed,
-        colors = ButtonDefaults.buttonColors(containerColor = MainBlue),
-        shape = RoundedCornerShape(14.dp),
-        modifier = Modifier.fillMaxWidth().height(52.dp)
-    ) { Text(if (changed) "Lưu luật chung" else "Đã lưu", fontSize = 17.sp, fontWeight = FontWeight.Bold) }
+    if (!valid) Text(Lang.t("Giờ phải đúng dạng HH:mm, ví dụ 21:30.", "Time must look like HH:mm, e.g. 21:30."), color = Ui.Red, fontSize = 12.sp)
+    PrimaryButton(
+        if (changed) Lang.t("Lưu luật chung", "Save rules") else Lang.t("Đã lưu", "Saved"),
+        { onSave(draft) }, enabled = valid && changed
+    )
     Text(
-        "Hết tổng giờ thì khóa máy, chỉ chừa gọi bố mẹ. Giờ ngủ qua nửa đêm (ví dụ 21:30–06:30) vẫn đúng.",
-        color = SoftText, fontSize = 13.sp
+        Lang.t(
+            "Hết tổng giờ thì khóa máy, chỉ chừa gọi bố mẹ. Giờ ngủ qua nửa đêm (ví dụ 21:30–06:30) vẫn đúng.",
+            "When the total time is used up the phone locks, leaving only calls to you. Bedtime across midnight (e.g. 21:30–06:30) works."
+        ),
+        color = Ui.Soft, fontSize = 12.sp
     )
 }
 
@@ -365,7 +363,7 @@ private fun TimeRow(start: String, end: String, onStart: (String) -> Unit, onEnd
     Row(verticalAlignment = Alignment.CenterVertically) {
         OutlinedTextField(
             value = start, onValueChange = { onStart(it.take(5)) },
-            label = { Text("Từ") }, singleLine = true,
+            label = { Text(Lang.t("Từ", "From")) }, singleLine = true,
             isError = !TimeRegex.matches(start),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
             modifier = Modifier.weight(1f)
@@ -373,7 +371,7 @@ private fun TimeRow(start: String, end: String, onStart: (String) -> Unit, onEnd
         Spacer(Modifier.width(10.dp))
         OutlinedTextField(
             value = end, onValueChange = { onEnd(it.take(5)) },
-            label = { Text("Đến") }, singleLine = true,
+            label = { Text(Lang.t("Đến", "To")) }, singleLine = true,
             isError = !TimeRegex.matches(end),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
             modifier = Modifier.weight(1f)
@@ -381,76 +379,63 @@ private fun TimeRow(start: String, end: String, onStart: (String) -> Unit, onEnd
     }
 }
 
-// ---- Tab 3 ----
+// ---- Tab 3: Từng app ----
 
 @Composable
 private fun PerAppTab(
     limits: List<PerAppLimit>,
-    usage: List<vn.phong.parental.model.AppUsageStat>,
-    installed: List<vn.phong.parental.model.InstalledApp>,
+    usage: List<AppUsageStat>,
+    installed: List<InstalledApp>,
     viewModel: ParentalViewModel
 ) {
     var adding by remember { mutableStateOf(false) }
     val usedByPkg = usage.associate { it.packageName to it.minutesToday }
-    WhiteCard {
-        Text("Giới hạn từng app", fontWeight = FontWeight.Bold, fontSize = 17.sp, color = DarkText)
-        Spacer(Modifier.height(10.dp))
-        if (limits.isEmpty()) {
-            Text("Chưa có app nào bị giới hạn.", color = SoftText, fontSize = 14.sp)
-        }
-        limits.sortedBy { it.appName.lowercase() }.forEach { l ->
-            val used = usedByPkg[l.packageName] ?: 0
-            val out = l.dailyMinutes > 0 && used >= l.dailyMinutes
-            Column(Modifier.padding(vertical = 8.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    AppAvatar(l.appName, 36)
-                    Spacer(Modifier.width(10.dp))
-                    Text(l.appName, modifier = Modifier.weight(1f), color = DarkText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    Text("$used/${l.dailyMinutes} phút", color = if (out) Red else SoftText, fontSize = 14.sp)
-                }
-                if (out) Text("Hết giờ, đã khóa", color = Red, fontSize = 13.sp)
-                Spacer(Modifier.height(4.dp))
-                LinearProgressIndicator(
-                    progress = {
-                        if (l.dailyMinutes > 0) (used.toFloat() / l.dailyMinutes).coerceIn(0f, 1f) else 0f
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedButton(onClick = {
-                        viewModel.savePerAppLimit(l.copy(dailyMinutes = (l.dailyMinutes - 10).coerceAtLeast(0)))
-                    }) { Text("−10") }
-                    Spacer(Modifier.width(6.dp))
-                    OutlinedButton(onClick = {
-                        viewModel.savePerAppLimit(l.copy(dailyMinutes = l.dailyMinutes + 10))
-                    }) { Text("+10") }
-                    Spacer(Modifier.weight(1f))
-                    Text("App học", color = SoftText, fontSize = 13.sp)
-                    Spacer(Modifier.width(6.dp))
-                    Switch(
-                        checked = l.isMandatory,
-                        onCheckedChange = { viewModel.savePerAppLimit(l.copy(isMandatory = it)) }
+    PrimaryButton(Lang.t("+ Thêm app cần giới hạn", "+ Add app limit"), { adding = true })
+    if (limits.isEmpty()) {
+        SectionCard { Text(Lang.t("Chưa có app nào bị giới hạn.", "No app limits yet."), color = Ui.Soft, fontSize = 13.sp) }
+    }
+    limits.sortedBy { it.appName.lowercase() }.forEach { l ->
+        val used = usedByPkg[l.packageName] ?: 0
+        val out = l.dailyMinutes > 0 && used >= l.dailyMinutes
+        SectionCard {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                AppAvatar(l.appName, 36)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(l.appName, color = Ui.Text, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    Text(
+                        if (out) Lang.t("Hết giờ, đã khóa", "Time is up, locked")
+                        else Lang.t("$used / ${l.dailyMinutes} phút", "$used / ${l.dailyMinutes} min"),
+                        color = if (out) Ui.Red else Ui.Soft, fontSize = 12.sp
                     )
                 }
                 TextButton(onClick = { viewModel.deletePerAppLimit(l.packageName) }) {
-                    Text("Bỏ giới hạn app này", color = Red)
+                    Text(Lang.t("Bỏ", "Remove"), color = Ui.Red)
                 }
             }
+            LinearProgressIndicator(
+                progress = { if (l.dailyMinutes > 0) (used.toFloat() / l.dailyMinutes).coerceIn(0f, 1f) else 0f },
+                modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(50)),
+                color = if (out) Ui.Red else Ui.Primary, trackColor = Ui.PrimarySoft
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                StepButton("−10") { viewModel.savePerAppLimit(l.copy(dailyMinutes = (l.dailyMinutes - 10).coerceAtLeast(0))) }
+                Spacer(Modifier.width(8.dp))
+                StepButton("+10") { viewModel.savePerAppLimit(l.copy(dailyMinutes = l.dailyMinutes + 10)) }
+                Spacer(Modifier.weight(1f))
+                Text(Lang.t("App học", "Study app"), color = Ui.Soft, fontSize = 12.sp)
+                Spacer(Modifier.width(6.dp))
+                Switch(checked = l.isMandatory, onCheckedChange = { viewModel.savePerAppLimit(l.copy(isMandatory = it)) })
+            }
         }
-        Spacer(Modifier.height(6.dp))
-        Button(
-            onClick = { adding = true },
-            colors = ButtonDefaults.buttonColors(containerColor = MainBlue),
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth().height(48.dp)
-        ) { Text("Thêm app", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "App học bật công tắc \"App học\": trong giờ học chỉ các app này mở được. " +
-                "0 phút = khóa hẳn app đó.",
-            color = SoftText, fontSize = 13.sp
-        )
     }
+    Text(
+        Lang.t(
+            "Bật \"App học\": trong giờ học chỉ các app này mở được. 0 phút = khóa hẳn app đó.",
+            "Turn on \"Study app\": during study time only these apps open. 0 min = app fully blocked."
+        ),
+        color = Ui.Soft, fontSize = 12.sp
+    )
     if (adding) {
         AddAppDialog(
             apps = installed.filter { app -> limits.none { it.packageName == app.packageName } },
@@ -465,42 +450,41 @@ private fun PerAppTab(
 
 @Composable
 private fun AddAppDialog(
-    apps: List<vn.phong.parental.model.InstalledApp>,
+    apps: List<InstalledApp>,
     onDismiss: () -> Unit,
-    onAdd: (vn.phong.parental.model.InstalledApp, Int) -> Unit
+    onAdd: (InstalledApp, Int) -> Unit
 ) {
     var query by remember { mutableStateOf("") }
     var minutes by remember { mutableIntStateOf(30) }
     val filtered = apps.filter { it.appName.contains(query, ignoreCase = true) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Thêm app giới hạn") },
+        title = { Text(Lang.t("Thêm app giới hạn", "Add app limit")) },
         text = {
             Column {
                 if (apps.isEmpty()) {
-                    Text("Chưa có danh sách app từ máy con. Mở máy con vài phút rồi thử lại.", fontSize = 14.sp)
+                    Text(
+                        Lang.t("Chưa có danh sách app từ máy con. Mở máy con vài phút rồi thử lại.", "No app list from the child's phone yet. Open it for a few minutes and retry."),
+                        fontSize = 14.sp
+                    )
                 } else {
                     OutlinedTextField(
                         value = query, onValueChange = { query = it },
-                        label = { Text("Tìm app") }, singleLine = true,
+                        label = { Text(Lang.t("Tìm app", "Search app")) }, singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
-                        OutlinedButton(onClick = { minutes = (minutes - 10).coerceAtLeast(0) }) { Text("−10") }
+                        StepButton("−10") { minutes = (minutes - 10).coerceAtLeast(0) }
                         Text(
-                            "$minutes phút/ngày", modifier = Modifier.weight(1f),
-                            fontWeight = FontWeight.Bold,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            Lang.t("$minutes phút/ngày", "$minutes min/day"), modifier = Modifier.weight(1f),
+                            fontWeight = FontWeight.Bold, textAlign = TextAlign.Center
                         )
-                        OutlinedButton(onClick = { minutes += 10 }) { Text("+10") }
+                        StepButton("+10") { minutes += 10 }
                     }
                     LazyColumn(Modifier.height(260.dp)) {
                         items(filtered, key = { it.packageName }) { app ->
-                            TextButton(
-                                onClick = { onAdd(app, minutes) },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(app.appName, modifier = Modifier.fillMaxWidth(), color = DarkText)
+                            TextButton(onClick = { onAdd(app, minutes) }, modifier = Modifier.fillMaxWidth()) {
+                                Text(app.appName, modifier = Modifier.fillMaxWidth(), color = Ui.Text)
                             }
                         }
                     }
@@ -508,11 +492,11 @@ private fun AddAppDialog(
             }
         },
         confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Đóng") } }
+        dismissButton = { TextButton(onClick = onDismiss) { Text(Lang.t("Đóng", "Close")) } }
     )
 }
 
-// ---- Tab 4 ----
+// ---- Tab 4: Khóa máy ----
 
 @Composable
 private fun LockTab(
@@ -525,103 +509,83 @@ private fun LockTab(
     var confirmUnpair by remember { mutableStateOf(false) }
     SectionCard {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            val tint = if (locked) Ui.Red else Ui.Green
             Box(
-                Modifier.size(130.dp).clip(CircleShape)
-                    .background(if (locked) Ui.RedSoft else Ui.GreenSoft),
+                Modifier.size(104.dp)
+                    .shadow(12.dp, CircleShape, spotColor = tint)
+                    .clip(CircleShape)
+                    .background(Brush.verticalGradient(listOf(Color.White, if (locked) Ui.RedSoft else Ui.GreenSoft)))
+                    .border(2.dp, tint.copy(alpha = 0.25f), CircleShape),
                 contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Filled.Lock, contentDescription = null,
-                    tint = if (locked) Red else Green, modifier = Modifier.size(64.dp)
-                )
-            }
-            Spacer(Modifier.height(10.dp))
+            ) { Icon(Icons.Filled.Lock, null, tint = tint, modifier = Modifier.size(50.dp)) }
+            Spacer(Modifier.height(8.dp))
             Text(
-                if (locked) "Máy con đang bị khóa" else "Máy con đang mở",
-                fontSize = 19.sp, fontWeight = FontWeight.Bold,
-                color = if (locked) Red else Green
+                if (locked) Lang.t("Máy con đang bị khóa", "Child's phone is locked") else Lang.t("Máy con đang mở", "Child's phone is unlocked"),
+                fontSize = 18.sp, fontWeight = FontWeight.Bold, color = tint
             )
-            Text("Lý do khóa hiện trên máy con.", color = SoftText, fontSize = 13.sp)
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
             PrimaryButton(
-                if (locked) "Mở khóa máy con" else "Khóa máy con ngay",
-                { viewModel.setLocked(!locked, if (!locked) "Bố mẹ khóa máy" else "") },
-                enabled = child != null,
-                color = if (locked) Green else Red
+                if (locked) Lang.t("Mở khóa máy con", "Unlock child's phone") else Lang.t("Khóa máy con ngay", "Lock child's phone now"),
+                { viewModel.setLocked(!locked, if (!locked) Lang.t("Bố mẹ khóa máy", "Locked by parent") else "") },
+                enabled = child != null, color = if (locked) Ui.Green else Ui.Red
             )
         }
     }
-    WhiteCard {
-        Text("Cho con thêm giờ hôm nay", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = DarkText)
-        Text("Cộng vào tổng giờ của hôm nay và mở khóa nếu đang hết giờ.", color = SoftText, fontSize = 13.sp)
-        Spacer(Modifier.height(8.dp))
+    SectionCard(
+        Lang.t("Cho mở khóa tạm", "Temporary unlock"),
+        Lang.t("Bỏ qua hết giờ, giờ ngủ, giờ học và giới hạn app trong thời gian này.", "Overrides time up, bedtime, study time and app limits for this period.")
+    ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { viewModel.grantBonus(15) }, enabled = child != null, modifier = Modifier.weight(1f)) { Text("+15 phút") }
-            OutlinedButton(onClick = { viewModel.grantBonus(30) }, enabled = child != null, modifier = Modifier.weight(1f)) { Text("+30 phút") }
-            OutlinedButton(onClick = { viewModel.grantBonus(60) }, enabled = child != null, modifier = Modifier.weight(1f)) { Text("+60 phút") }
+            PrimaryButton(Lang.t("15 phút", "15 min"), { viewModel.grantPass(15) }, Modifier.weight(1f), enabled = child != null, color = Ui.Green)
+            PrimaryButton(Lang.t("30 phút", "30 min"), { viewModel.grantPass(30) }, Modifier.weight(1f), enabled = child != null, color = Ui.Green)
+            PrimaryButton(Lang.t("1 giờ", "1 hour"), { viewModel.grantPass(60) }, Modifier.weight(1f), enabled = child != null, color = Ui.Green)
+        }
+    }
+    SectionCard(
+        Lang.t("Cho thêm giờ hôm nay", "Add time today"),
+        Lang.t("Cộng vào tổng giờ của hôm nay.", "Adds to today's total time.")
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SecondaryButton("+15", { viewModel.grantBonus(15) }, Modifier.weight(1f), enabled = child != null)
+            SecondaryButton("+30", { viewModel.grantBonus(30) }, Modifier.weight(1f), enabled = child != null)
+            SecondaryButton("+60", { viewModel.grantBonus(60) }, Modifier.weight(1f), enabled = child != null)
         }
         child?.let {
             if (it.bonusMinutes > 0) {
-                Spacer(Modifier.height(6.dp))
-                Text("Hôm nay đã cho thêm ${it.bonusMinutes} phút.", color = SoftText, fontSize = 13.sp)
+                Text(Lang.t("Hôm nay đã cho thêm ${it.bonusMinutes} phút.", "${it.bonusMinutes} extra min granted today."), color = Ui.Soft, fontSize = 12.sp)
             }
         }
     }
     Text(
-        "Khi khóa, máy con chỉ còn: gọi bố mẹ, đèn pin, SOS, xin mở khóa.",
-        color = SoftText, fontSize = 14.sp
+        Lang.t(
+            "Khi khóa, máy con chỉ còn: gọi bố mẹ, đèn pin, SOS, xin mở khóa.",
+            "While locked, the child's phone only has: call parent, flashlight, SOS, request unlock."
+        ),
+        color = Ui.Soft, fontSize = 12.sp
     )
-    WhiteCard {
-        Text("Tài khoản", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = DarkText)
-        Spacer(Modifier.height(8.dp))
-        OutlinedButton(
-            onClick = { confirmUnpair = true },
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) { Text("Hủy ghép nối máy con", color = Red) }
-        Spacer(Modifier.height(8.dp))
-        OutlinedButton(
-            onClick = { viewModel.signOutParent(onSignedOut) },
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) { Text("Đăng xuất", color = DarkText) }
+    SectionCard(Lang.t("Tài khoản", "Account")) {
+        SecondaryButton(Lang.t("Hủy ghép nối máy con", "Unpair child's phone"), { confirmUnpair = true }, color = Ui.Red)
+        SecondaryButton(Lang.t("Đăng xuất", "Sign out"), { viewModel.signOutParent(onSignedOut) })
     }
     if (confirmUnpair) {
         AlertDialog(
             onDismissRequest = { confirmUnpair = false },
-            title = { Text("Hủy ghép nối?") },
-            text = { Text("Máy con sẽ ngừng được quản lý. Muốn quản lý lại phải ghép nối từ đầu.") },
+            title = { Text(Lang.t("Hủy ghép nối?", "Unpair?")) },
+            text = {
+                Text(
+                    Lang.t(
+                        "Máy con sẽ ngừng được quản lý. Muốn quản lý lại phải ghép nối từ đầu.",
+                        "The child's phone will no longer be managed. You must pair again to manage it."
+                    )
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     confirmUnpair = false
                     viewModel.unpairChild(onUnpaired)
-                }) { Text("Hủy ghép nối", color = Red) }
+                }) { Text(Lang.t("Hủy ghép nối", "Unpair"), color = Ui.Red) }
             },
-            dismissButton = { TextButton(onClick = { confirmUnpair = false }) { Text("Giữ lại") } }
+            dismissButton = { TextButton(onClick = { confirmUnpair = false }) { Text(Lang.t("Giữ lại", "Keep")) } }
         )
-    }
-}
-
-// ---- Thành phần chung ----
-
-@Composable
-private fun WhiteCard(content: @Composable () -> Unit) {
-    SectionCard { content() }
-}
-
-@Composable
-private fun StatCard(label: String, value: String, modifier: Modifier = Modifier) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        shape = RoundedCornerShape(16.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Ui.Line),
-        elevation = CardDefaults.cardElevation(0.dp),
-        modifier = modifier
-    ) {
-        Column(Modifier.padding(14.dp)) {
-            Text(label, color = SoftText, fontSize = 13.sp)
-            Spacer(Modifier.height(4.dp))
-            Text(value, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = DarkText)
-        }
     }
 }

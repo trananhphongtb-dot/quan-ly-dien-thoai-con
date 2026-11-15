@@ -41,6 +41,16 @@ class LocalStore(context: Context) {
         get() = prefs.getString("parent_phone", null)
         set(value) = prefs.edit().putString("parent_phone", value).apply()
 
+    /** Lần phản hồi cuối của bố mẹ mà máy con đã báo cho con. */
+    var lastReplySeen: Long
+        get() = prefs.getLong("last_reply_seen", 0L)
+        set(value) = prefs.edit().putLong("last_reply_seen", value).apply()
+
+    /** Ngôn ngữ giao diện: "vi" hoặc "en"; rỗng = theo ngôn ngữ máy. */
+    var lang: String
+        get() = prefs.getString("lang", "") ?: ""
+        set(value) = prefs.edit().putString("lang", value).apply()
+
     // ---- Chẩn đoán máy con (hiện trên màn "Máy đang được bảo vệ") ----
     var lastLoopAt: Long
         get() = prefs.getLong("diag_loop_at", 0L)

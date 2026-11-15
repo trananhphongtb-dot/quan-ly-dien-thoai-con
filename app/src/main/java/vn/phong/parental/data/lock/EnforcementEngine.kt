@@ -74,11 +74,15 @@ object EnforcementEngine {
         remoteLocked: Boolean,
         remoteReason: String,
         bonusMinutes: Int = 0,
-        nowMinutes: Int = nowMinutes()
+        nowMinutes: Int = nowMinutes(),
+        unlockUntilMillis: Long = 0L,
+        nowMillis: Long = System.currentTimeMillis()
     ): Block? {
         if (remoteLocked) {
             return Block(remoteReason.ifBlank { "Bố mẹ đã khóa máy" }, true)
         }
+        // Bố mẹ đã cho mở khóa tạm: qua mọi luật giờ cho tới khi hết hạn.
+        if (unlockUntilMillis > nowMillis) return null
         val effective = generalLimit.copy(
             dailyTotalMinutes = generalLimit.dailyTotalMinutes + bonusMinutes
         )

@@ -57,6 +57,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        vn.phong.parental.ui.Lang.init(applicationContext)
         setContent {
             AppTheme {
                 var screen by remember { mutableStateOf(initialScreen()) }

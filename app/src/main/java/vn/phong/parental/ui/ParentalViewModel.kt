@@ -303,6 +303,26 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    /** Đồng ý lời xin: mở khóa tạm [minutes] phút và báo cho con. */
+    fun grantPass(minutes: Int) {
+        val fid = store.familyId ?: return
+        val cid = store.childId ?: return
+        viewModelScope.launch {
+            runCatching { rulesRepo.grantPass(fid, cid, minutes) }
+                .onFailure { _error.value = it.message }
+        }
+    }
+
+    /** Từ chối lời xin và báo cho con. */
+    fun denyRequest() {
+        val fid = store.familyId ?: return
+        val cid = store.childId ?: return
+        viewModelScope.launch {
+            runCatching { rulesRepo.denyRequest(fid, cid) }
+                .onFailure { _error.value = it.message }
+        }
+    }
+
     fun dismissUnlockRequest() {
         val fid = store.familyId ?: return
         val cid = store.childId ?: return

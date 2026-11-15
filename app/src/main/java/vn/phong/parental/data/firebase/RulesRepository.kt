@@ -1,6 +1,7 @@
 package vn.phong.parental.data.firebase
 
 import com.google.firebase.Timestamp
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Transaction
@@ -75,6 +76,42 @@ class RulesRepository(
             mapOf(
                 "isLocked" to locked,
                 "lockReason" to reason,
+                // Bố mẹ khóa lại thì hủy luôn quyền mở khóa tạm đang có.
+                "unlockUntil" to if (locked) 0L else FieldValue.delete(),
+                "updatedAt" to Timestamp.now()
+            )
+        ).await()
+    }
+
+    /**
+     * Bố mẹ đồng ý lời xin: cho mở khóa tạm [minutes] phút, bỏ qua mọi luật giờ
+     * (hết giờ, giờ ngủ, giờ học, hết giờ từng app), xóa lệnh khóa từ xa,
+     * và ghi phản hồi để máy con báo cho con biết.
+     */
+    suspend fun grantPass(familyId: String, childId: String, minutes: Int) {
+        val until = System.currentTimeMillis() + minutes * 60_000L
+        childDoc(familyId, childId).update(
+            mapOf(
+                "unlockUntil" to until,
+                "isLocked" to false,
+                "lockReason" to "",
+                "unlockRequest" to "",
+                "replyKind" to "APPROVED",
+                "replyMinutes" to minutes,
+                "replyAt" to Timestamp.now(),
+                "updatedAt" to Timestamp.now()
+            )
+        ).await()
+    }
+
+    /** Bố mẹ từ chối lời xin: xóa lời xin và báo lại cho con. */
+    suspend fun denyRequest(familyId: String, childId: String) {
+        childDoc(familyId, childId).update(
+            mapOf(
+                "unlockRequest" to "",
+                "replyKind" to "DENIED",
+                "replyMinutes" to 0,
+                "replyAt" to Timestamp.now(),
                 "updatedAt" to Timestamp.now()
             )
         ).await()
@@ -255,7 +292,11 @@ class RulesRepository(
                     bonusMinutes = snap.getLong("bonusMinutes")?.toInt() ?: 0,
                     bonusDate = snap.getString("bonusDate") ?: "",
                     permMissing = snap.getString("permMissing") ?: "",
-                    updatedAtMillis = snap.getTimestamp("updatedAt")?.toDate()?.time ?: 0L
+                    updatedAtMillis = snap.getTimestamp("updatedAt")?.toDate()?.time ?: 0L,
+                    unlockUntilMillis = snap.getLong("unlockUntil") ?: 0L,
+                    replyKind = snap.getString("replyKind") ?: "",
+                    replyMinutes = snap.getLong("replyMinutes")?.toInt() ?: 0,
+                    replyAtMillis = snap.getTimestamp("replyAt")?.toDate()?.time ?: 0L
                 )
             )
         }

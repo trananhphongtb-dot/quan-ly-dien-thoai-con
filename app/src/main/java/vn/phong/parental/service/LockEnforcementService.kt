@@ -19,6 +19,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withTimeoutOrNull
 import vn.phong.parental.data.firebase.LocalStore
+import vn.phong.parental.model.ChildDevice
+import vn.phong.parental.ui.Lang
 import vn.phong.parental.data.firebase.RulesRepository
 import vn.phong.parental.data.lock.EnforcementEngine
 import vn.phong.parental.data.lock.Exempt
@@ -71,6 +73,7 @@ class LockEnforcementService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        Lang.init(applicationContext)
         startForegroundNotification()
     }
 
@@ -94,6 +97,7 @@ class LockEnforcementService : Service() {
                     stopSelf()
                 } else {
                     child = doc
+                    handleReply(store, doc)
                     store.lastSyncAt = System.currentTimeMillis()
                     kick.trySend(Unit)
                 }
@@ -114,6 +118,52 @@ class LockEnforcementService : Service() {
             }
         }
         return START_STICKY
+    }
+
+    /** Bố mẹ trả lời lời xin: báo cho con bằng thông báo và dòng chữ trên màn hình. */
+    private fun handleReply(store: LocalStore, doc: ChildDevice) {
+        if (doc.replyAtMillis <= 0L || doc.replyAtMillis <= store.lastReplySeen) return
+        // Lần đầu mở app, bỏ qua phản hồi cũ để khỏi báo lại.
+        if (store.lastReplySeen == 0L && System.currentTimeMillis() - doc.replyAtMillis > 120_000L) {
+            store.lastReplySeen = doc.replyAtMillis
+            return
+        }
+        store.lastReplySeen = doc.replyAtMillis
+        val text = if (doc.replyKind == "APPROVED") {
+            Lang.t(
+                "Bố mẹ đã đồng ý, máy được mở ${doc.replyMinutes} phút",
+                "Your parent approved: unlocked for ${doc.replyMinutes} min"
+            )
+        } else {
+            Lang.t("Bố mẹ chưa đồng ý lúc này", "Your parent said not right now")
+        }
+        notifyReply(text)
+        ChildAccessibilityService.instance?.showMessage(text)
+    }
+
+    private fun notifyReply(text: String) {
+        runCatching {
+            val channelId = "parental_reply"
+            val nm = getSystemService(NotificationManager::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                nm.createNotificationChannel(
+                    NotificationChannel(channelId, "Phản hồi của bố mẹ", NotificationManager.IMPORTANCE_HIGH)
+                )
+            }
+            val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                Notification.Builder(this, channelId)
+            } else {
+                @Suppress("DEPRECATION") Notification.Builder(this)
+            }
+            nm.notify(
+                4242,
+                builder.setContentTitle(Lang.t("Phản hồi từ bố mẹ", "Reply from your parent"))
+                    .setContentText(text)
+                    .setSmallIcon(android.R.drawable.ic_dialog_info)
+                    .setAutoCancel(true)
+                    .build()
+            )
+        }
     }
 
     private fun today(): String =
@@ -156,7 +206,8 @@ class LockEnforcementService : Service() {
             exempt = exempt,
             remoteLocked = doc?.isLocked ?: false,
             remoteReason = doc?.lockReason ?: "",
-            bonusMinutes = bonus
+            bonusMinutes = bonus,
+            unlockUntilMillis = doc?.unlockUntilMillis ?: 0L
         )
 
         // Phạm vi khóa dùng chung cho màn khóa và dịch vụ trợ năng.

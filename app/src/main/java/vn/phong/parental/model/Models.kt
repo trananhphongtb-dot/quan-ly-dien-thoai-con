@@ -27,7 +27,13 @@ data class ChildDevice(
     /** Quyền máy con đang thiếu (rỗng = đủ), để bố mẹ biết con có tắt quyền. */
     val permMissing: String = "",
     /** Lần cuối máy con báo về (ms), 0 nếu chưa có. */
-    val updatedAtMillis: Long = 0L
+    val updatedAtMillis: Long = 0L,
+    /** Bố mẹ cho mở khóa tạm đến thời điểm này (ms); qua mọi luật giờ, trừ khi bố mẹ khóa lại. */
+    val unlockUntilMillis: Long = 0L,
+    /** Phản hồi của bố mẹ với lời xin (hiện cho con), kèm thời điểm. */
+    val replyKind: String = "",
+    val replyMinutes: Int = 0,
+    val replyAtMillis: Long = 0L
 )
 
 /** Giới hạn chung — Tab 2. */

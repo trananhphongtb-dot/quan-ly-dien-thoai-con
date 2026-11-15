@@ -24,34 +24,34 @@ fun ChildPairingScreen(
     val error by viewModel.error.collectAsState()
     LaunchedEffect(error) { if (error != null) sending = false }
 
-    ScreenScaffold("Con", "Nhập mã do bố mẹ đưa") {
-        error?.let { Notice("Lỗi: $it", NoticeKind.ERROR) }
-        SectionCard("Ghép nối với máy bố mẹ", "Mã 6 số hiện trên máy của bố mẹ, có hiệu lực 10 phút.") {
+    ScreenScaffold(Lang.t("Con", "Child"), Lang.t("Nhập mã do bố mẹ đưa", "Enter the code from your parent")) {
+        error?.let { Notice(Lang.t("Lỗi: $it", "Error: $it"), NoticeKind.ERROR) }
+        SectionCard(Lang.t("Ghép nối với máy bố mẹ", "Pair with the parent phone"), Lang.t("Mã 6 số hiện trên máy của bố mẹ, có hiệu lực 10 phút.", "The 6-digit code is shown on the parent phone, valid 10 minutes.")) {
             OutlinedTextField(
                 value = deviceName, onValueChange = { deviceName = it.take(30) },
-                label = { Text("Tên của con (ví dụ: Máy của Bin)") }, singleLine = true,
+                label = { Text(Lang.t("Tên của con (ví dụ: Máy của Bin)", "Child name (e.g. Bin's phone)")) }, singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
             OutlinedTextField(
                 value = code,
                 onValueChange = { v -> code = v.filter { it.isDigit() }.take(6) },
-                label = { Text("Mã ghép nối 6 số") }, singleLine = true,
+                label = { Text(Lang.t("Mã ghép nối 6 số", "6-digit pairing code")) }, singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                 modifier = Modifier.fillMaxWidth()
             )
             PrimaryButton(
-                if (sending) "Đang gửi..." else "Gửi yêu cầu ghép nối",
+                if (sending) Lang.t("Đang gửi...", "Sending...") else Lang.t("Gửi yêu cầu ghép nối", "Send pairing request"),
                 {
                     sending = true
                     viewModel.clearError()
-                    viewModel.childClaimCode(code, deviceName.ifBlank { "Máy của con" }) {
+                    viewModel.childClaimCode(code, deviceName.ifBlank { Lang.t("Máy của con", "Child phone") }) {
                         sending = false
                         onRequestSent()
                     }
                 },
                 enabled = code.length == 6 && !sending
             )
-            Text("Sau khi gửi, bố mẹ phải bấm Duyệt thì hai máy mới nối xong.", color = Ui.Soft, fontSize = 13.sp)
+            Text(Lang.t("Sau khi gửi, bố mẹ phải bấm Duyệt thì hai máy mới nối xong.", "After sending, your parent must tap Approve to finish pairing."), color = Ui.Soft, fontSize = 12.sp)
         }
     }
 }
@@ -64,15 +64,17 @@ fun ChildWaitingScreen(
     onCancel: () -> Unit
 ) {
     LaunchedEffect(Unit) { viewModel.childWaitForApproval(onApproved) }
-    ScreenScaffold("Con", "Đang chờ bố mẹ") {
-        SectionCard("Đang chờ bố mẹ duyệt") {
+    ScreenScaffold(Lang.t("Con", "Child"), Lang.t("Đang chờ bố mẹ", "Waiting for your parent")) {
+        SectionCard(Lang.t("Đang chờ bố mẹ duyệt", "Waiting for approval")) {
             Text(
-                "Nhờ bố mẹ mở app trên máy của bố mẹ và bấm Duyệt. " +
-                    "Duyệt xong màn này tự chuyển sang bước cấp quyền.",
-                color = Ui.Soft, fontSize = 14.sp
+                Lang.t(
+                    "Nhờ bố mẹ mở app trên máy của bố mẹ và bấm Duyệt. Duyệt xong màn này tự chuyển sang bước cấp quyền.",
+                    "Ask your parent to open the app on their phone and tap Approve. This screen moves on automatically."
+                ),
+                color = Ui.Soft, fontSize = 13.sp
             )
             LinearWaiting()
-            SecondaryButton("Hủy, nhập lại mã", onCancel)
+            SecondaryButton(Lang.t("Hủy, nhập lại mã", "Cancel, re-enter code"), onCancel)
         }
     }
 }
