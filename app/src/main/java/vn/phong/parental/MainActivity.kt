@@ -25,7 +25,7 @@ import vn.phong.parental.ui.ParentalViewModel
 import vn.phong.parental.ui.RoleSelectionScreen
 
 private enum class Screen {
-    ROLE, PARENT_PAIRING, CHILD_PAIRING, CHILD_WAITING, CHILD_PERMISSIONS, CHILD_ACTIVE, PARENT_HOME
+    LANGUAGE, ROLE, PARENT_PAIRING, CHILD_PAIRING, CHILD_WAITING, CHILD_PERMISSIONS, CHILD_ACTIVE, PARENT_HOME
 }
 
 /**
@@ -48,7 +48,10 @@ class MainActivity : ComponentActivity() {
             "WAITING" -> Screen.CHILD_WAITING
             else -> Screen.CHILD_PAIRING
         }
-        else -> Screen.ROLE
+        else ->
+            // Lần đầu mở app chưa chọn ngôn ngữ thì hỏi ngôn ngữ trước, rồi mới chọn vai.
+            if (vn.phong.parental.data.firebase.LocalStore(applicationContext).lang.isBlank()) Screen.LANGUAGE
+            else Screen.ROLE
     }
 
     private fun startEnforcement() {
@@ -76,6 +79,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 when (screen) {
+                    Screen.LANGUAGE -> vn.phong.parental.ui.LanguageScreen { screen = Screen.ROLE }
                     Screen.ROLE -> RoleSelectionScreen { role ->
                         screen = if (role == Role.PARENT) Screen.PARENT_PAIRING else Screen.CHILD_PAIRING
                     }

@@ -15,6 +15,8 @@ import vn.phong.parental.data.firebase.ParentAuth
 import vn.phong.parental.data.firebase.RulesRepository
 import vn.phong.parental.model.AppUsageStat
 import vn.phong.parental.model.ChildDevice
+import vn.phong.parental.service.ParentWatchService
+import vn.phong.parental.service.SosAlert
 import vn.phong.parental.model.GeneralLimit
 import vn.phong.parental.model.InstalledApp
 import vn.phong.parental.model.PerAppLimit
@@ -196,6 +198,7 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
                         startListening(fid, next.id)
                     } else {
                         stopListening()
+                        stopWatch()
                         store.childId = null
                         _child.value = null
                         _children.value = emptyList()
@@ -210,6 +213,8 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
 
     fun signOutParent(onDone: () -> Unit) {
         stopListening()
+        stopWatch()
+        SosAlert.stop()
         ParentAuth.signOut()
         store.clear()
         _signedInEmail.value = null
@@ -287,6 +292,35 @@ class ParentalViewModel(application: Application) : AndroidViewModel(application
         listeners += rulesRepo.listenPerAppLimits(familyId, childId) { _perAppLimits.value = it }
         listeners += rulesRepo.listenUsage(familyId, childId, today()) { _usage.value = it }
         listeners += rulesRepo.listenInstalledApps(familyId, childId) { _installedApps.value = it }
+    }
+
+    // ---- Báo SOS (bên bố mẹ) ----
+    private val _sosTick = MutableStateFlow(0)
+    /** Tăng mỗi khi bố mẹ bấm "Đã biết", để giao diện vẽ lại. */
+    val sosTick: StateFlow<Int> = _sosTick
+
+    fun sosPending(c: ChildDevice): Boolean = c.sosAtMillis > store.sosDismissed(c.id)
+
+    fun dismissSos(c: ChildDevice) {
+        store.setSosDismissed(c.id, c.sosAtMillis)
+        SosAlert.stop()
+        _sosTick.value++
+    }
+
+    var sosSoundOn: Boolean
+        get() = store.sosSoundOn
+        set(value) { store.sosSoundOn = value; if (!value) SosAlert.stop() }
+
+    var sosSoundUri: String
+        get() = store.sosSoundUri
+        set(value) { store.sosSoundUri = value }
+
+    private fun stopWatch() {
+        runCatching {
+            getApplication<Application>().stopService(
+                android.content.Intent(getApplication(), ParentWatchService::class.java)
+            )
+        }
     }
 
     /** Chọn máy con khác để xem và chỉnh luật. */

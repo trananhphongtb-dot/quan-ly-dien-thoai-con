@@ -20,14 +20,30 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+        // Khóa tải lên Google Play (upload key). Giữ kỹ file app/upload.keystore và mật khẩu:
+        // mất thì phải nhờ Google đặt lại khóa tải lên. Có thể ghi đè mật khẩu bằng biến
+        // môi trường UPLOAD_KS_PASSWORD (ví dụ từ GitHub secret).
+        create("release") {
+            storeFile = file("upload.keystore")
+            storePassword = System.getenv("UPLOAD_KS_PASSWORD") ?: "CaKzgKDBxKUcjJSPtP5cqE-n"
+            keyAlias = "upload"
+            keyPassword = System.getenv("UPLOAD_KS_PASSWORD") ?: "CaKzgKDBxKUcjJSPtP5cqE-n"
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = false
+        }
     }
 
     defaultConfig {
         applicationId = "vn.phong.parental"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0-frame"
+        versionCode = 2
+        versionName = "1.0.0"
     }
 
     buildFeatures {

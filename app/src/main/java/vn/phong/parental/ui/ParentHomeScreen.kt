@@ -1,6 +1,20 @@
 package vn.phong.parental.ui
 
+import android.Manifest
+import android.app.Activity
+import android.content.Intent
+import android.media.RingtoneManager
+import android.net.Uri
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import vn.phong.parental.data.lock.EnforcementEngine
+import vn.phong.parental.data.lock.PermissionState
+import vn.phong.parental.service.ParentWatchService
+import vn.phong.parental.service.SosAlert
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -75,10 +89,24 @@ fun ParentHomeScreen(
     val error by viewModel.error.collectAsState()
     var tab by remember { mutableIntStateOf(0) }
     var clock by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
+    val sosTick by viewModel.sosTick.collectAsState()
+    val context = LocalContext.current
+    val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    // Có mở khóa tạm thì đếm từng giây cho đồng hồ chạy ngược, không thì 15 giây một lần.
+    val fastTick = (child?.unlockUntilMillis ?: 0L) > clock
+    LaunchedEffect(fastTick) {
         while (true) {
-            kotlinx.coroutines.delay(15_000)
+            kotlinx.coroutines.delay(if (fastTick) 1_000 else 15_000)
             clock = System.currentTimeMillis()
+        }
+    }
+    // Chạy nền để báo SOS kể cả khi thoát app; xin quyền thông báo trên Android 13+.
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= 33 && !PermissionState.notifications(context)) {
+            notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        runCatching {
+            ContextCompat.startForegroundService(context, Intent(context, ParentWatchService::class.java))
         }
     }
     val tabs = listOf(
@@ -91,6 +119,8 @@ fun ParentHomeScreen(
     Column(Modifier.fillMaxSize().background(Ui.Bg)) {
         val c = child
         val online = c != null && c.updatedAtMillis > 0 && clock - c.updatedAtMillis < 150_000
+        val block = if (c != null) effectiveBlock(c, general, clock) else null
+        val passLeft = if (c != null && c.unlockUntilMillis > clock) c.unlockUntilMillis - clock else 0L
         AppHeader(
             title = c?.name?.ifBlank { null } ?: Lang.t("Máy của con", "Child's phone"),
             subtitle = when {
@@ -109,8 +139,8 @@ fun ParentHomeScreen(
                             .clickable { renaming = true }.padding(6.dp)
                     )
                 }
-                if (c?.isLocked == true) StatusChip(Lang.t("Đang khóa", "Locked"), Ui.Red)
-                else if (c != null && c.unlockUntilMillis > clock) StatusChip(Lang.t("Mở tạm", "Pass"), Ui.Green)
+                if (passLeft > 0) StatusChip(Lang.t("Mở tạm ${countdown(passLeft)}", "Pass ${countdown(passLeft)}"), Ui.Green)
+                else if (block != null) StatusChip(Lang.t("Đang khóa", "Locked"), Ui.Red)
             }
         )
         Column(
@@ -122,6 +152,20 @@ fun ParentHomeScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             ChildSwitcher(children, c?.id, onSelect = { viewModel.selectChild(it) }, onAdd = onAddChild)
+            // SOS của bất kỳ con nào, hiện trên cùng cho tới khi bố mẹ bấm "Đã biết".
+            children.filter { sosTick >= 0 && viewModel.sosPending(it) }.forEach { sc ->
+                SosBanner(sc, onOpen = { viewModel.selectChild(sc.id) }, onDismiss = { viewModel.dismissSos(sc) })
+            }
+            if (passLeft > 0) {
+                Notice(
+                    Lang.t("Đang mở khóa tạm: còn ${countdown(passLeft)}", "Temporary pass: ${countdown(passLeft)} left"),
+                    NoticeKind.SUCCESS
+                ) {
+                    TextButton(onClick = { viewModel.setLocked(true, Lang.t("Bố mẹ khóa máy", "Locked by parent")) }) {
+                        Text(Lang.t("Khóa lại", "Lock now"), color = Ui.Red)
+                    }
+                }
+            }
             error?.let {
                 Notice(Lang.t("Lỗi: $it", "Error: $it"), NoticeKind.ERROR) {
                     TextButton(onClick = { viewModel.clearError() }) { Text(Lang.t("Đóng", "Close")) }
@@ -131,7 +175,7 @@ fun ParentHomeScreen(
                 0 -> TrackTab(c, general, usage, viewModel, clock)
                 1 -> GeneralTab(general) { viewModel.saveGeneralLimit(it) }
                 2 -> PerAppTab(perApp, usage, installed, viewModel)
-                3 -> LockTab(c, viewModel, onSignedOut, onUnpaired)
+                3 -> LockTab(c, block, passLeft, viewModel, onSignedOut, onUnpaired)
             }
             Spacer(Modifier.height(4.dp))
         }
@@ -271,14 +315,6 @@ private fun TrackTab(
                 PrimaryButton(Lang.t("1 giờ", "1 hour"), { viewModel.grantPass(60) }, Modifier.weight(1f), color = Ui.Green)
             }
             SecondaryButton(Lang.t("Từ chối", "Decline"), { viewModel.denyRequest() }, color = Ui.Red)
-        }
-    }
-    if (child.unlockUntilMillis > clock) {
-        val left = ((child.unlockUntilMillis - clock) / 60_000L + 1).toInt()
-        Notice(Lang.t("Đang mở khóa tạm, còn khoảng $left phút.", "Temporary pass active, about $left min left."), NoticeKind.SUCCESS) {
-            TextButton(onClick = { viewModel.setLocked(true, Lang.t("Bố mẹ khóa máy", "Locked by parent")) }) {
-                Text(Lang.t("Khóa lại", "Lock now"), color = Ui.Red)
-            }
         }
     }
     SectionCard {
@@ -592,14 +628,117 @@ private fun AddAppDialog(
 
 // ---- Tab 4: Khóa máy ----
 
+/** Trạng thái khóa toàn máy theo đúng luật mà máy con đang áp dụng (null = đang mở). */
+private fun effectiveBlock(child: ChildDevice, general: GeneralLimit, nowMillis: Long): EnforcementEngine.Block? {
+    val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+    val bonus = if (child.bonusDate == today) child.bonusMinutes else 0
+    return EnforcementEngine.evaluate(
+        packageName = null,
+        limits = emptyList(),
+        usedMinutesToday = emptyMap(),
+        generalLimit = general,
+        totalMinutesToday = child.todayTotalMinutes,
+        exempt = emptySet(),
+        remoteLocked = child.isLocked,
+        remoteReason = child.lockReason,
+        bonusMinutes = bonus,
+        unlockUntilMillis = child.unlockUntilMillis,
+        nowMillis = nowMillis
+    )
+}
+
+/** Đồng hồ chạy ngược dạng mm:ss (hoặc h:mm:ss khi quá 1 giờ). */
+private fun countdown(ms: Long): String {
+    val total = (ms / 1000).coerceAtLeast(0)
+    val h = total / 3600
+    val m = (total % 3600) / 60
+    val sec = total % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%02d:%02d".format(m, sec)
+}
+
+/** Thẻ cảnh báo SOS màu đỏ, nằm trên cùng cho tới khi bố mẹ bấm "Đã biết". */
+@Composable
+private fun SosBanner(child: ChildDevice, onOpen: () -> Unit, onDismiss: () -> Unit) {
+    val shape = RoundedCornerShape(18.dp)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .shadow(10.dp, shape, spotColor = Ui.Red)
+            .clip(shape)
+            .background(Brush.verticalGradient(listOf(Color(0xFFE53935), Color(0xFFB71C1C))))
+            .clickable(onClick = onOpen)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            Lang.t("SOS từ ${child.name.ifBlank { "máy con" }}!", "SOS from ${child.name.ifBlank { "child's phone" }}!"),
+            color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp
+        )
+        Text(
+            Lang.t("Lúc ", "At ") + SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(child.sosAtMillis)) +
+                if (child.unlockRequest.isNotBlank()) " — ${child.unlockRequest}" else "",
+            color = Color(0xFFFFE0DE), fontSize = 13.sp
+        )
+        SecondaryButton(Lang.t("Đã biết, tắt chuông", "Got it, stop the alarm"), onDismiss, color = Ui.Red)
+    }
+}
+
+@Composable
+private fun SosSoundCard(viewModel: ParentalViewModel) {
+    val context = LocalContext.current
+    var on by remember { mutableStateOf(viewModel.sosSoundOn) }
+    var uri by remember { mutableStateOf(viewModel.sosSoundUri) }
+    val title = remember(uri) { SosAlert.titleOf(context, uri) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        if (res.resultCode == Activity.RESULT_OK) {
+            @Suppress("DEPRECATION")
+            val picked = res.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+            uri = picked?.toString() ?: ""
+            viewModel.sosSoundUri = uri
+        }
+    }
+    SectionCard(
+        Lang.t("Âm báo SOS", "SOS alert sound"),
+        Lang.t("Chỉ phát tiếng, không rung. Kêu theo âm lượng báo thức.", "Sound only, no vibration. Plays at alarm volume.")
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(Lang.t("Kêu khi con bấm SOS", "Ring when child taps SOS"), color = Ui.Text, fontSize = 14.sp, modifier = Modifier.weight(1f))
+            Switch(checked = on, onCheckedChange = { on = it; viewModel.sosSoundOn = it })
+        }
+        Text(Lang.t("Âm đang chọn: $title", "Selected sound: $title"), color = Ui.Soft, fontSize = 12.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SecondaryButton(Lang.t("Chọn âm", "Choose"), {
+                val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                    putExtra(
+                        RingtoneManager.EXTRA_RINGTONE_TYPE,
+                        RingtoneManager.TYPE_ALARM or RingtoneManager.TYPE_RINGTONE or RingtoneManager.TYPE_NOTIFICATION
+                    )
+                    putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                    putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                    if (uri.isNotBlank()) putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(uri))
+                }
+                runCatching { picker.launch(intent) }
+            }, Modifier.weight(1f))
+            SecondaryButton(Lang.t("Nghe thử", "Test"), { SosAlert.start(context, force = true) }, Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SecondaryButton(Lang.t("Tắt tiếng thử", "Stop"), { SosAlert.stop() }, Modifier.weight(1f))
+            SecondaryButton(Lang.t("Về mặc định", "Default"), { uri = ""; viewModel.sosSoundUri = "" }, Modifier.weight(1f))
+        }
+    }
+}
+
 @Composable
 private fun LockTab(
     child: ChildDevice?,
+    block: EnforcementEngine.Block?,
+    passLeft: Long,
     viewModel: ParentalViewModel,
     onSignedOut: () -> Unit,
     onUnpaired: () -> Unit
 ) {
-    val locked = child?.isLocked ?: false
+    val locked = block != null && passLeft <= 0
+    val remoteLocked = child?.isLocked == true
     var confirmUnpair by remember { mutableStateOf(false) }
     SectionCard {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -614,15 +753,31 @@ private fun LockTab(
             ) { Icon(Icons.Filled.Lock, null, tint = tint, modifier = Modifier.size(50.dp)) }
             Spacer(Modifier.height(8.dp))
             Text(
-                if (locked) Lang.t("Máy con đang bị khóa", "Child's phone is locked") else Lang.t("Máy con đang mở", "Child's phone is unlocked"),
+                when {
+                    passLeft > 0 -> Lang.t("Đang mở khóa tạm", "Temporarily unlocked")
+                    locked -> Lang.t("Máy con đang bị khóa", "Child's phone is locked")
+                    else -> Lang.t("Máy con đang mở", "Child's phone is unlocked")
+                },
                 fontSize = 18.sp, fontWeight = FontWeight.Bold, color = tint
             )
+            if (passLeft > 0) {
+                Text(Lang.t("Còn ${countdown(passLeft)}", "${countdown(passLeft)} left"), color = Ui.Soft, fontSize = 14.sp)
+            } else if (locked && block != null) {
+                Text(block.reason, color = Ui.Soft, fontSize = 13.sp, textAlign = TextAlign.Center)
+            }
             Spacer(Modifier.height(10.dp))
             PrimaryButton(
-                if (locked) Lang.t("Mở khóa máy con", "Unlock child's phone") else Lang.t("Khóa máy con ngay", "Lock child's phone now"),
-                { viewModel.setLocked(!locked, if (!locked) Lang.t("Bố mẹ khóa máy", "Locked by parent") else "") },
-                enabled = child != null, color = if (locked) Ui.Green else Ui.Red
+                Lang.t("Khóa máy con ngay", "Lock child's phone now"),
+                { viewModel.setLocked(true, Lang.t("Bố mẹ khóa máy", "Locked by parent")) },
+                enabled = child != null && !remoteLocked, color = Ui.Red
             )
+            if (remoteLocked) {
+                Text(
+                    Lang.t("Muốn mở, dùng \"Cho mở khóa tạm\" bên dưới.", "To open it, use \"Temporary unlock\" below."),
+                    color = Ui.Soft, fontSize = 12.sp, textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
         }
     }
     SectionCard(
@@ -650,6 +805,7 @@ private fun LockTab(
             }
         }
     }
+    SosSoundCard(viewModel)
     Text(
         Lang.t(
             "Khi khóa, máy con chỉ còn: gọi bố mẹ, đèn pin, SOS, xin mở khóa.",

@@ -109,5 +109,30 @@ class LocalStore(context: Context) {
         return SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
     }
 
-    fun clear() = prefs.edit().clear().apply()
+    // ---- Cài đặt báo SOS bên bố mẹ ----
+    /** Bật/tắt chuông khi con bấm SOS (mặc định bật). */
+    var sosSoundOn: Boolean
+        get() = prefs.getBoolean("sos_sound_on", true)
+        set(value) = prefs.edit().putBoolean("sos_sound_on", value).apply()
+
+    /** Âm báo SOS do bố mẹ chọn (uri), rỗng = chuông báo thức mặc định. */
+    var sosSoundUri: String
+        get() = prefs.getString("sos_sound_uri", "") ?: ""
+        set(value) = prefs.edit().putString("sos_sound_uri", value).apply()
+
+    /** Lần SOS cuối của từng con mà bố mẹ đã bấm "Đã biết". */
+    fun sosDismissed(childId: String): Long = prefs.getLong("sos_dismissed_$childId", 0L)
+    fun setSosDismissed(childId: String, at: Long) =
+        prefs.edit().putLong("sos_dismissed_$childId", at).apply()
+
+    /** Xóa dữ liệu ghép nối, nhưng giữ ngôn ngữ và cài đặt âm báo. */
+    fun clear() {
+        val keepLang = lang
+        val keepOn = sosSoundOn
+        val keepUri = sosSoundUri
+        prefs.edit().clear().apply()
+        lang = keepLang
+        sosSoundOn = keepOn
+        sosSoundUri = keepUri
+    }
 }

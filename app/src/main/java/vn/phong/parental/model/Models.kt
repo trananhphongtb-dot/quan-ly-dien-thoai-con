@@ -33,7 +33,9 @@ data class ChildDevice(
     /** Phản hồi của bố mẹ với lời xin (hiện cho con), kèm thời điểm. */
     val replyKind: String = "",
     val replyMinutes: Int = 0,
-    val replyAtMillis: Long = 0L
+    val replyAtMillis: Long = 0L,
+    /** Lần con bấm SOS gần nhất (ms), 0 nếu chưa có. */
+    val sosAtMillis: Long = 0L
 )
 
 /** Giới hạn chung — Tab 2. */

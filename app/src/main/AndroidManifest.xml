@@ -65,6 +65,14 @@
                 android:value="parental_control_time_limit_enforcement" />
         </service>
         <service
+            android:name=".service.ParentWatchService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="parent_sos_alert_watch" />
+        </service>
+        <service
             android:name=".service.ChildAccessibilityService"
             android:exported="false"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">

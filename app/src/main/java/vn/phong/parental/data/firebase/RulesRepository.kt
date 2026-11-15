@@ -298,7 +298,8 @@ class RulesRepository(
                     unlockUntilMillis = snap.getLong("unlockUntil") ?: 0L,
                     replyKind = snap.getString("replyKind") ?: "",
                     replyMinutes = snap.getLong("replyMinutes")?.toInt() ?: 0,
-                    replyAtMillis = snap.getTimestamp("replyAt")?.toDate()?.time ?: 0L
+                    replyAtMillis = snap.getTimestamp("replyAt")?.toDate()?.time ?: 0L,
+                    sosAtMillis = snap.getTimestamp("sosAt")?.toDate()?.time ?: 0L
                 )
             )
         }
@@ -328,6 +329,9 @@ class RulesRepository(
                         id = d.id,
                         name = d.getString("name") ?: "",
                         isLocked = d.getBoolean("isLocked") ?: false,
+                        unlockRequest = d.getString("unlockRequest") ?: "",
+                        unlockRequestAtMillis = d.getTimestamp("unlockRequestAt")?.toDate()?.time ?: 0L,
+                        sosAtMillis = d.getTimestamp("sosAt")?.toDate()?.time ?: 0L,
                         updatedAtMillis = d.getTimestamp("updatedAt")?.toDate()?.time ?: 0L
                     )
                 }?.sortedBy { it.name.lowercase() } ?: emptyList()
